@@ -79,8 +79,7 @@ export default function App() {
               Sala Actual: <span id="room-name">{room.name}</span>
             </h3>
             <p id="room-description">
-              {room.description} Usa W/S para avanzar y retroceder, y el mouse
-              para mirar.
+              {room.description} Usa W/S para avanzar y retroceder.
             </p>
           </div>
 
@@ -106,7 +105,7 @@ export default function App() {
               <strong>W/S</strong> - Avanzar/Retroceder
             </li>
             <li>
-              <strong>Mouse</strong> - Girar vista
+              <strong>Espacio</strong> - Vista de la obra mas cercana
             </li>
           </ul>
         </div>
