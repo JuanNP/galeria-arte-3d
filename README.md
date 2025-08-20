@@ -27,16 +27,13 @@ Una galería de arte virtual 3D interactiva inspirada en la experiencia de naveg
 ## 🎮 Controles
 
 ### Navegación Básica
-- **WASD** - Mover la cámara
-- **Mouse** - Girar la vista (clic y arrastrar)
-- **Scroll** - Zoom in/out
-- **Flechas Izquierda/Derecha** - Navegar entre salas
+- **WS** - Mover la cámara
 - **Espacio** - Seleccionar obra más cercana
 
 ### Interfaz
-- **Botones de sala** - Navegación rápida entre salas
 - **Toggle UI** - Ocultar/mostrar interfaz
 - **Reset Cámara** - Volver a la posición inicial
+- **Salir de obra** - Salir de la vista de una obra.
 
 ## 🏗️ Estructura del Proyecto
 
