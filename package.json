@@ -1,0 +1,24 @@
+{
+  "name": "galeria-arte-3d",
+  "version": "1.0.0",
+  "description": "Galería de arte 3D interactiva con navegación inmersiva",
+  "main": "index.html",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.158.0",
+    "gsap": "^3.12.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "@vitejs/plugin-react": "^4.2.0"
+  },
+  "keywords": ["3d", "arte", "galeria", "threejs", "interactivo"],
+  "author": "Tu Nombre",
+  "license": "MIT"
+}

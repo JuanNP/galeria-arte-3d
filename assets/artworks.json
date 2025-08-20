@@ -1,0 +1,32 @@
+[
+  {
+    "title": "One Piece #1",
+    "artist": "Eiichiro Oda",
+    "size": [2.4, 1.6],
+    "image": "/assets/images/onepiece_01.jpg"
+  },
+  {
+    "title": "One Piece #2",
+    "artist": "Eiichiro Oda",
+    "size": [2.4, 1.6],
+    "image": "/assets/images/onepiece_02.jpg"
+  },
+  {
+    "title": "One Piece #3",
+    "artist": "Eiichiro Oda",
+    "size": [2.4, 1.6],
+    "image": "/assets/images/onepiece_03.jpg"
+  },
+  {
+    "title": "One Piece #4",
+    "artist": "Eiichiro Oda",
+    "size": [2.4, 1.6],
+    "image": "/assets/images/onepiece_04.jpg"
+  },
+  {
+    "title": "One Piece #5",
+    "artist": "Eiichiro Oda",
+    "size": [2.4, 1.6],
+    "image": "/assets/images/onepiece_05.jpg"
+  }
+]
