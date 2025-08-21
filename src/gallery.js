@@ -13,6 +13,7 @@ export default class ArtGallery3D {
     this.isLoading = true;
     this._spots = [];
     this._points = [];
+    this._artFillLights = [];
     this.onRoomChange = options.onRoomChange || (() => {});
     this.onArtworkSelect = options.onArtworkSelect || (() => {});
 
@@ -70,6 +71,14 @@ export default class ArtGallery3D {
     this._clock = new THREE.Clock();
     this._keys = { w: false, s: false };
     this._moveSpeed = 10.0;
+    // Slight self-illumination so images don't look too dark under spot shadows
+    this._artEmissiveBoost = 0.45; // subtle self-illumination to keep details visible
+    // If true, artworks use an unlit material (always fully illuminated)
+    this._artUnlit = true;
+    // Brightness multiplier for unlit artworks (0.0–1.0; 1 = original texture)
+    this._artUnlitBrightness = 0.25;
+    // Constant: distance from floor to the **bottom** of every artwork (meters)
+    this._artBottomMargin = 1.1;
     // Optional FPS cap (set to 60; set to 0 to disable)
     this._fpsCap = 60;
     this._lastFrameTime = 0;
@@ -97,8 +106,10 @@ export default class ArtGallery3D {
     this.renderer.setSize(width, height);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.physicallyCorrectLights = true;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.2;
+    this.renderer.toneMappingExposure = 1.3; // a bit brighter whites
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     container.appendChild(this.renderer.domElement);
 
@@ -157,6 +168,71 @@ export default class ArtGallery3D {
         onError?.(err);
       }
     );
+  }
+
+  // Compute display size (meters) from image pixel size, respecting max/min and aspect
+  _computeDisplaySize(imgW, imgH) {
+    const MAX_W = 10; // meters (landscape width cap)
+    const MAX_H = 10; // meters (portrait height cap)
+    const MIN_W = 0.5; // avoid too tiny
+    const MIN_H = 0.5;
+    const aspect = Math.max(0.1, imgW / Math.max(1, imgH));
+
+    let w, h;
+    if (aspect >= 1) {
+      // Landscape: width is the long side
+      w = Math.min(MAX_W, 1.6); // base long side ~1.6m, capped by MAX_W
+      h = w / aspect;
+      if (h > MAX_H) {
+        h = MAX_H;
+        w = h * aspect;
+      }
+    } else {
+      // Portrait: height is the long side
+      h = Math.min(MAX_H, 1.6); // base long side ~1.6m, capped by MAX_H
+      w = h * aspect;
+      if (w > MAX_W) {
+        w = MAX_W;
+        h = w / aspect;
+      }
+    }
+    // Clamp to mins
+    w = Math.max(MIN_W, w);
+    h = Math.max(MIN_H, h);
+
+    // Scale up by 2x current size (overall 3.0x from original base) and clamp to max caps
+    const SCALE = 3.0; // double current size (was 1.5x before)
+    w = Math.min(MAX_W, w * SCALE);
+    h = Math.min(MAX_H, h * SCALE);
+    return { w, h };
+  }
+
+  // Apply width/height to canvas and frame (unit-sized geometries)
+  _applyDisplaySize(frameMesh, canvasMesh, w, h) {
+    const FRAME_PAD = 0.2; // 10cm border around the image
+    if (canvasMesh) canvasMesh.scale.set(w, h, 1);
+    if (frameMesh) frameMesh.scale.set(w + FRAME_PAD, h + FRAME_PAD, 1); // keep depth constant
+  }
+
+  // Attach a local spotlight to an artwork so the image is fully readable
+  _attachArtworkFillLight(artworkGroup, w, h) {
+    // Wide, soft spotlight placed slightly in front of the canvas, aimed back to its center.
+    const spot = new THREE.SpotLight(0xffffff, 2.0, 3.5, Math.PI / 3, 0.7, 2);
+    spot.castShadow = false; // this is just a fill; shadows come from ceiling lights
+    spot.layers.enable(1); // only needs to light layer 1 (artworks)
+
+    // Position in the artwork's LOCAL space (group rotates with the wall)
+    const yMid = h * 0.15; // a bit above center to mimic gallery aiming
+    spot.position.set(0, yMid, 0.55); // 55cm in front of the canvas
+
+    // Create/attach target at the canvas center
+    const target = new THREE.Object3D();
+    target.position.set(0, yMid, 0.0);
+    artworkGroup.add(target);
+    spot.target = target;
+
+    artworkGroup.add(spot);
+    this._artFillLights.push(spot);
   }
 
   setupControls() {
@@ -337,25 +413,33 @@ export default class ArtGallery3D {
   }
 
   setupLights() {
-    const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
-    this.scene.add(ambientLight);
+    // Soft ambient fill replaced by hemisphere to keep white walls balanced
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x2b2b2b, 0.5);
+    hemi.layers.enable(1); // affect artworks on layer 1
+    this.scene.add(hemi);
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(10, 10, 5);
+    // Top-down directional to keep lighting symmetric left/right and preserve shadows
+    const directionalLight = new THREE.DirectionalLight(0xfffbf0, 0.7); // slight warm white, softer to let spots read
+    directionalLight.layers.enable(1); // affect artworks on layer 1
+    directionalLight.position.set(0, 12, 6); // slightly forward, centered in X
+    directionalLight.target.position.set(0, 0, 0);
     directionalLight.castShadow = true;
     directionalLight.shadow.mapSize.width = 1024;
     directionalLight.shadow.mapSize.height = 1024;
     directionalLight.shadow.camera.near = 0.5;
-    directionalLight.shadow.camera.far = 50;
-    directionalLight.shadow.camera.left = -20;
-    directionalLight.shadow.camera.right = 20;
-    directionalLight.shadow.camera.top = 20;
-    directionalLight.shadow.camera.bottom = -20;
+    directionalLight.shadow.camera.far = 80;
+    directionalLight.shadow.camera.left = -24;
+    directionalLight.shadow.camera.right = 24;
+    directionalLight.shadow.camera.top = 24;
+    directionalLight.shadow.camera.bottom = -24;
+    directionalLight.shadow.bias = -0.0002; // reduce acne/banding
     this.scene.add(directionalLight);
-
+    this.scene.add(directionalLight.target);
+    // Generic corridor point lights (soft fill along the hall)
     const corridorLightPositions = [-30, -15, 0, 15, 30];
+    this._points = [];
     corridorLightPositions.forEach((z) => {
-      const point = new THREE.PointLight(0xffffff, 0.6, 30);
+      const point = new THREE.PointLight(0xffffff, 0.8, 30);
       point.position.set(0, 7, z);
       point.castShadow = false;
       this.scene.add(point);
@@ -395,6 +479,7 @@ export default class ArtGallery3D {
       4,
       this.renderer.capabilities.getMaxAnisotropy()
     );
+    texture.colorSpace = THREE.SRGBColorSpace;
     texture.needsUpdate = true;
     return texture;
   }
@@ -420,6 +505,7 @@ export default class ArtGallery3D {
       4,
       this.renderer.capabilities.getMaxAnisotropy()
     );
+    texture.colorSpace = THREE.SRGBColorSpace;
     texture.needsUpdate = true;
     return texture;
   }
@@ -452,6 +538,7 @@ export default class ArtGallery3D {
       4,
       this.renderer.capabilities.getMaxAnisotropy()
     );
+    texture.colorSpace = THREE.SRGBColorSpace;
     texture.needsUpdate = true;
     return texture;
   }
@@ -529,10 +616,12 @@ export default class ArtGallery3D {
     const leftWall = new THREE.Mesh(sideWallGeometry, wallMaterial);
     leftWall.position.set(-corridorWidth / 2, wallHeight / 2, 0);
     leftWall.castShadow = true;
+    leftWall.receiveShadow = true;
     corridorGroup.add(leftWall);
     const rightWall = new THREE.Mesh(sideWallGeometry, wallMaterial);
     rightWall.position.set(corridorWidth / 2, wallHeight / 2, 0);
     rightWall.castShadow = true;
+    rightWall.receiveShadow = true;
     corridorGroup.add(rightWall);
     // Store wall references for collision checks
     this.corridor.leftWall = leftWall;
@@ -561,44 +650,105 @@ export default class ArtGallery3D {
     const track = new THREE.Mesh(trackGeometry, trackMaterial);
     track.position.set(0, wallHeight - 0.6, 0);
     parent.add(track);
-    const numSpots = 10;
+
+    // Evenly spaced ceiling spotlights aiming to each wall
+    const numSpots = Math.max(6, Math.floor(corridorLength / 8));
+    const startZ = -trackLength / 2;
+    const stepZ = trackLength / (numSpots - 1);
+    this._spots = [];
     for (let i = 0; i < numSpots; i++) {
-      // Define which indices will have shadows enabled
-      const shadowIndices = new Set([
-        Math.floor(numSpots * 0.25),
-        Math.floor(numSpots * 0.75),
-      ]);
-      const enableShadow = shadowIndices.has(i);
-      const t = (i / (numSpots - 1)) * trackLength - trackLength / 2;
+      const z = startZ + i * stepZ;
+      const y = wallHeight - 0.5;
+
+      // Left wall target
       const spotL = new THREE.SpotLight(
         0xffffff,
-        0.6,
-        20,
+        0.65,
+        22,
         Math.PI / 8,
         0.4,
         1.5
       );
-      spotL.position.set(0, wallHeight - 0.5, t);
-      spotL.target.position.set(-corridorWidth / 2 + 0.2, 3, t);
-      spotL.castShadow = enableShadow;
-      parent.add(spotL);
-      parent.add(spotL.target);
+      spotL.position.set(0, y, z);
+      spotL.target.position.set(-corridorWidth / 2 - 0.01 + 0.21, 2, z); // +0.2 de separación de pared
+      spotL.castShadow = true;
+      spotL.shadow.mapSize.set(1024, 1024);
+      spotL.shadow.bias = -0.0002;
+      this.scene.add(spotL);
+      this.scene.add(spotL.target);
       this._spots.push(spotL);
+
+      // Right wall target
       const spotR = new THREE.SpotLight(
         0xffffff,
-        0.6,
-        20,
+        0.65,
+        22,
         Math.PI / 8,
         0.4,
         1.5
       );
-      spotR.position.set(0, wallHeight - 0.5, t);
-      spotR.target.position.set(corridorWidth / 2 - 0.2, 3, t);
-      spotR.castShadow = enableShadow;
-      parent.add(spotR);
-      parent.add(spotR.target);
+      spotR.position.set(0, y, z);
+      spotR.target.position.set(corridorWidth / 2 + 0.01 - 0.21, 2, z); // -0.2 de separación de pared
+      spotR.castShadow = true;
+      spotR.shadow.mapSize.set(1024, 1024);
+      spotR.shadow.bias = -0.0002;
+      this.scene.add(spotR);
+      this.scene.add(spotR.target);
       this._spots.push(spotR);
     }
+  }
+
+  rebuildArtworkSpots() {
+    // Remove existing artwork spots
+    for (const s of this._spots) {
+      if (s.target && s.target.parent) s.target.parent.remove(s.target);
+      if (s.parent) s.parent.remove(s);
+    }
+    this._spots = [];
+
+    const corridorLength = this.corridor?.length || 80;
+    const corridorWidth = this.corridor?.width || 6;
+    const wallHeight = this.corridor?.wallHeight || 8;
+
+    // Create one spotlight per artwork, positioned directly above its wall, aimed at the artwork center
+    for (const a of this.artworks) {
+      if (!a || !a.mesh) continue;
+      const z = a.mesh.position.z;
+      const y = wallHeight - 0.3; // near ceiling
+      // Place the light over the same wall as the artwork, slightly off the wall
+      const overX =
+        a.side === "left"
+          ? -corridorWidth / 2 + 0.35
+          : corridorWidth / 2 - 0.35;
+
+      // Strong, clearly visible spotlight with reliable shadows
+      const spot = new THREE.SpotLight(0xfff1e0, 2.4, 18, Math.PI / 6, 0.5, 2);
+      spot.position.set(overX, y, z);
+      // Light affects both default (0) and artworks (1) layers
+      spot.layers.enable(1);
+
+      // Target: artwork center, nudged off the wall to avoid grazing
+      const artCenter = new THREE.Vector3();
+      new THREE.Box3().setFromObject(a.mesh).getCenter(artCenter);
+      const targetX =
+        a.side === "left" ? artCenter.x + 0.12 : artCenter.x - 0.12;
+      spot.target.position.set(targetX, artCenter.y, artCenter.z);
+
+      spot.castShadow = true;
+      spot.shadow.mapSize.set(2048, 2048);
+      spot.shadow.bias = -0.00018;
+      spot.shadow.camera.near = 0.1;
+      spot.shadow.camera.far = 30;
+      spot.shadow.focus = 1;
+
+      this.scene.add(spot);
+      this.scene.add(spot.target);
+      this._spots.push(spot);
+    }
+  }
+  // Public API: rebuild per-artwork spotlights after adding/removing artworks at runtime
+  refreshLighting() {
+    this.rebuildArtworkSpots();
   }
   _updateCulling() {
     const ACTIVE_Z = 24; // ventana visible ±12 m
@@ -649,18 +799,23 @@ export default class ArtGallery3D {
       }
       if (!artworksData) throw new Error("No se pudo cargar artworks.json");
 
+      // Precompute corridor/spacing variables
+      const N = artworksData.length;
+      const corridorWidth = this.corridor?.width || 6;
+      const corridorLength = this.corridor?.length || 80;
+      const halfLen = corridorLength / 2;
+      const endMargin = 2.0; // meters from each end cap
+      const frameDepth = 0.1; // matches frame BoxGeometry depth
+      const gap = 0.12; // small gap from wall to avoid z-fighting
+      const xInner = corridorWidth / 2 - (frameDepth + gap);
+      const startZ = -halfLen + endMargin;
+      const spacingZ = N > 1 ? (2 * (halfLen - endMargin)) / (N - 1) : 0; // fill entire corridor
+
       artworksData.forEach((data, i) => {
-        // Place artworks against inner wall surface (corridor width aware)
-        const corridorWidth = this.corridor?.width || 6;
-        const frameDepth = 0.1; // matches frame BoxGeometry depth
-        const gap = 0.12; // small gap from wall to avoid z-fighting
-        const xInner = corridorWidth / 2 - (frameDepth + gap);
         const sideRight = i % 2 === 0; // alternate sides
         const xOffset = sideRight ? xInner : -xInner;
-
-        const zSpacing = 6; // meters between artworks along corridor
-        const z = -i * zSpacing;
-        const y = 2; // center height
+        const z = startZ + i * spacingZ; // uniformly across corridor
+        const y = 2; // eye-level center
 
         const artworkData = {
           ...data,
@@ -677,11 +832,8 @@ export default class ArtGallery3D {
 
   createArtwork(data, index) {
     const artworkGroup = new THREE.Group();
-    const frameGeometry = new THREE.BoxGeometry(
-      data.size[0] + 0.2,
-      data.size[1] + 0.2,
-      0.1
-    );
+    // Start with unit geometry; final size will be applied via scale
+    const frameGeometry = new THREE.BoxGeometry(1, 1, 0.1);
     const frameMaterial = new THREE.MeshStandardMaterial({
       color: 0x111111,
       roughness: 0.5,
@@ -691,36 +843,94 @@ export default class ArtGallery3D {
     frame.castShadow = true;
     artworkGroup.add(frame);
 
-    const canvasGeometry = new THREE.PlaneGeometry(data.size[0], data.size[1]);
-    const canvasMaterial = new THREE.MeshStandardMaterial({
-      roughness: 1.0,
-      metalness: 0.0,
-    });
+    const canvasGeometry = new THREE.PlaneGeometry(1, 1);
+    const canvasMaterial = this._artUnlit
+      ? new THREE.MeshBasicMaterial({
+          // Multiply texture by this color to dim or brighten in unlit mode
+          color: new THREE.Color().setScalar(this._artUnlitBrightness),
+        })
+      : new THREE.MeshStandardMaterial({
+          roughness: 1.0,
+          metalness: 0.0,
+        });
 
     // Prefer custom image if provided; otherwise use generated textures with LOD
+    let canvas = null;
     if (data.image) {
       const imgUrl = this._resolveAssetUrl(data.image);
+      canvas = new THREE.Mesh(canvasGeometry, canvasMaterial);
+      canvas.position.z = 0.06;
+      canvas.castShadow = false; // do not let canvas be affected by light/shadows
+      artworkGroup.add(canvas);
       this._loadArtworkTexture(imgUrl, (texture) => {
         canvasMaterial.map = texture;
         canvasMaterial.needsUpdate = true;
+        if (!this._artUnlit) {
+          // Lit pipeline: gentle self-illumination for readability
+          canvasMaterial.emissive = new THREE.Color(0x111111);
+          canvasMaterial.emissiveMap = texture;
+          canvasMaterial.emissiveIntensity = this._artEmissiveBoost;
+          canvasMaterial.roughness = 0.3;
+          canvasMaterial.metalness = 0.0;
+        }
         data._hasCustomImage = true;
         data._canvasMaterial = canvasMaterial;
+        // Size the artwork to preserve the image aspect ratio with safe caps
+        const { w, h } = this._computeDisplaySize(
+          texture.image?.naturalWidth || texture.image?.width || 1024,
+          texture.image?.naturalHeight || texture.image?.height || 1024
+        );
+        this._applyDisplaySize(frame, canvas, w, h);
+        data.size = [w, h];
+        // Place the artwork so the bottom sits at a constant margin above the floor
+        const [x0, , z0] = data.position;
+        const newY = this._artBottomMargin + h * 0.5;
+        data.position = [x0, newY, z0];
+        artworkGroup.position.y = newY;
+        // Local fill light so the artwork reads as fully illuminated
+        this._attachArtworkFillLight(artworkGroup, w, h);
       });
+      // (Optional safety) Ensure canvases do NOT receive shadow maps from frames/walls
+      canvas.receiveShadow = false; // keep image clean from shadow maps
     } else {
       const artMapLow = this.generateArtworkTexture(256, 256);
       const artMapHigh = this.generateArtworkTexture(512, 512);
       canvasMaterial.map = artMapLow;
       canvasMaterial.needsUpdate = true;
+      if (!this._artUnlit) {
+        // Self-illumination for generated artworks (lit mode only)
+        canvasMaterial.emissive = new THREE.Color(0x111111);
+        canvasMaterial.emissiveMap = artMapLow;
+        canvasMaterial.emissiveIntensity = this._artEmissiveBoost;
+        canvasMaterial.roughness = 0.3;
+        canvasMaterial.metalness = 0.0;
+      }
       data._artMapLow = artMapLow;
       data._artMapHigh = artMapHigh;
       data._canvasMaterial = canvasMaterial;
       data._currentLOD = "low";
+      canvas = new THREE.Mesh(canvasGeometry, canvasMaterial);
+      canvas.position.z = 0.06;
+      canvas.castShadow = false;
+      artworkGroup.add(canvas);
+      // (Optional safety) Ensure canvases do NOT receive shadow maps from frames/walls
+      canvas.receiveShadow = false; // keep image clean from shadow maps
+      // Apply default or provided size
+      let w0 = Array.isArray(data.size) ? data.size[0] : 1.2;
+      let h0 = Array.isArray(data.size) ? data.size[1] : 0.8;
+      // Double current size (overall 3.0x from original base), with generous caps
+      w0 = Math.min(10, w0 * 3.0);
+      h0 = Math.min(10, h0 * 3.0);
+      this._applyDisplaySize(frame, canvas, w0, h0);
+      data.size = [w0, h0];
+      // Place the artwork so the bottom sits at a constant margin above the floor
+      const [x0, , z0] = data.position;
+      const newY = this._artBottomMargin + h0 * 0.5;
+      data.position = [x0, newY, z0];
+      artworkGroup.position.y = newY;
+      // Local fill light so the artwork reads as fully illuminated
+      this._attachArtworkFillLight(artworkGroup, w0, h0);
     }
-
-    const canvas = new THREE.Mesh(canvasGeometry, canvasMaterial);
-    canvas.position.z = 0.06;
-    canvas.castShadow = true;
-    artworkGroup.add(canvas);
 
     data.mesh = artworkGroup;
     data.index = index;
@@ -886,20 +1096,55 @@ export default class ArtGallery3D {
   }
 
   deselectArtwork() {
+    // Unlock view-lock state
     this._isViewLocked = false;
     this._lockedTarget = null;
-    // aim forward down the corridor from current position
-    const forwardYaw = 0; // face -Z
-    const pitch = 0;
-    const dir = new THREE.Vector3(
-      Math.sin(forwardYaw) * Math.cos(pitch),
-      Math.sin(pitch),
-      -Math.cos(forwardYaw) * Math.cos(pitch)
+    this.selectedArtwork = null;
+
+    // Target: recenter X only (keep current Z), at eye height
+    const corridorLength = this.corridor?.length || 80;
+    const halfLen = corridorLength / 2 - 2.5; // respect movement clamps
+    const currentZ = THREE.MathUtils.clamp(
+      this.camera.position.z,
+      -halfLen,
+      halfLen
     );
-    this._lookAtTargetDesired = this.camera.position
-      .clone()
-      .add(dir.multiplyScalar(this._lookRadius))
-      .setY(2);
+    const end = new THREE.Vector3(0, 2, currentZ);
+
+    // Prepare tween flags
+    this._freezeRotation = true;
+    this._isCameraTweening = true;
+    this.camera.up.set(0, 1, 0);
+
+    gsap.to(this.camera.position, {
+      x: end.x,
+      y: end.y,
+      z: end.z,
+      duration: 1.0,
+      ease: "power3.inOut",
+      onUpdate: () => {
+        // Aim forward down the corridor while returning
+        const forward = new THREE.Vector3(0, 0, -1);
+        const look = this.camera.position
+          .clone()
+          .add(forward.multiplyScalar(this._lookRadius))
+          .setY(2);
+        this._lookAtTarget.copy(look);
+        this._lookAtTargetDesired.copy(look);
+      },
+      onComplete: () => {
+        this._freezeRotation = false;
+        this._isCameraTweening = false;
+        // Ensure unlocked forward look is kept after tween
+        const forward = new THREE.Vector3(0, 0, -1);
+        const look = this.camera.position
+          .clone()
+          .add(forward.multiplyScalar(this._lookRadius))
+          .setY(2);
+        this._lookAtTarget.copy(look);
+        this._lookAtTargetDesired.copy(look);
+      },
+    });
   }
 
   setupEventListeners() {}

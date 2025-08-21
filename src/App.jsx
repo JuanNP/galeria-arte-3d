@@ -73,7 +73,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="gallery-info">
+        {/* <div className="gallery-info">
           <div className="current-room">
             <h3>
               Sala Actual: <span id="room-name">{room.name}</span>
@@ -82,20 +82,22 @@ export default function App() {
               {room.description} Usa W/S para avanzar y retroceder.
             </p>
           </div>
-
-          <div className="artwork-info" id="artwork-info">
-            <h4>Obra Seleccionada</h4>
-            <p id="artwork-title">
-              {selectedArtwork?.title ||
-                "Selecciona una obra para ver detalles"}
-            </p>
-            <p id="artwork-artist">
-              {selectedArtwork ? `Artista: ${selectedArtwork.artist}` : ""}
-            </p>
-            <p id="artwork-description">{selectedArtwork?.description || ""}</p>
-          </div>
-        </div>
+        </div> */}
       </nav>
+
+      <div
+        className={`artwork-info ${uiHidden ? "hidden" : ""}`}
+        id="artwork-info"
+      >
+        <h4>Obra Seleccionada</h4>
+        <p id="artwork-title">
+          {selectedArtwork?.title || "Selecciona una obra para ver detalles"}
+        </p>
+        <p id="artwork-artist">
+          {selectedArtwork ? `Artista: ${selectedArtwork.artist}` : ""}
+        </p>
+        <p id="artwork-description">{selectedArtwork?.description || ""}</p>
+      </div>
 
       <div className={`instructions ${uiHidden ? "hidden" : ""}`}>
         <div className="instruction-content">
@@ -113,7 +115,7 @@ export default function App() {
 
       <div id="canvas-container"></div>
 
-      <div className="room-navigation">
+      {/* <div className="room-navigation">
         <button
           className={`room-btn ${room.key === "galeria" ? "active" : ""}`}
           data-room="galeria"
@@ -121,7 +123,7 @@ export default function App() {
         >
           Galería
         </button>
-      </div>
+      </div> */}
     </div>
   );
 }
