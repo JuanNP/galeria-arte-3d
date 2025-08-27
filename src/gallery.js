@@ -122,13 +122,13 @@ export default class ArtGallery3D {
     });
   }
 
-    // Resolve asset URLs for Vite development and production
+  // Resolve asset URLs for Vite development and production
   _resolveAssetUrl(path) {
     if (!path) return path;
- 
+
     // Absolute http(s) or data URLs pass through
     if (/^(https?:)?\/\//.test(path) || /^data:/.test(path)) return path;
- 
+
     // For development: assets are served from root when publicDir is set to "assets"
     // For production: assets are served from base path
     if (path.startsWith("assets/")) {
@@ -141,12 +141,12 @@ export default class ArtGallery3D {
         return "/galeria-arte-3d/" + path;
       }
     }
- 
+
     // If starts with '/': assume public root
     if (path.startsWith("/")) {
       return path;
     }
- 
+
     // For relative paths that don't start with "assets/", try to resolve them
     // This handles cases where the path might be relative to the current module
     try {
