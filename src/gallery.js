@@ -122,26 +122,37 @@ export default class ArtGallery3D {
     });
   }
 
-  // Resolve asset URLs whether they live under /public or /src/assets (Vite-friendly)
+    // Resolve asset URLs for Vite development and production
   _resolveAssetUrl(path) {
     if (!path) return path;
+ 
     // Absolute http(s) or data URLs pass through
     if (/^(https?:)?\/\//.test(path) || /^data:/.test(path)) return path;
-    // If starts with '/': assume public root, but also provide a module-relative fallback
-    // by rewriting '/assets/...' -> '../assets/...'
-    if (path.startsWith("/")) {
-      try {
-        // Try public path first
-        return path;
-      } catch (_) {}
-      // Fallback to module-relative (useful in dev if assets are in src/assets)
-      const rel = path.replace(/^\//, "");
-      return new URL("../" + rel, import.meta.url).href;
+ 
+    // For development: assets are served from root when publicDir is set to "assets"
+    // For production: assets are served from base path
+    if (path.startsWith("assets/")) {
+      // Check if we're in development or production
+      if (import.meta.env.DEV) {
+        // Development: assets served from root
+        return "/" + path;
+      } else {
+        // Production: assets served from base path (GitHub Pages)
+        return "/galeria-arte-3d/" + path;
+      }
     }
-    // Relative path given -> resolve relative to this module file
+ 
+    // If starts with '/': assume public root
+    if (path.startsWith("/")) {
+      return path;
+    }
+ 
+    // For relative paths that don't start with "assets/", try to resolve them
+    // This handles cases where the path might be relative to the current module
     try {
       return new URL(path, import.meta.url).href;
     } catch (_) {
+      // If URL resolution fails, return the path as-is
       return path;
     }
   }
@@ -150,9 +161,13 @@ export default class ArtGallery3D {
   _loadArtworkTexture(url, onLoad, onError) {
     const loader = new THREE.TextureLoader();
     const resolvedUrl = this._resolveAssetUrl(url);
+
+    console.log(`🖼️  Cargando textura: ${url} -> ${resolvedUrl}`);
+
     loader.load(
       resolvedUrl,
       (tex) => {
+        console.log(`✅ Textura cargada exitosamente: ${url}`);
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.generateMipmaps = true;
         tex.anisotropy = Math.min(
@@ -164,7 +179,8 @@ export default class ArtGallery3D {
       },
       undefined,
       (err) => {
-        console.warn("No se pudo cargar la imagen de la obra:", url, err);
+        console.error(`❌ Error cargando textura: ${url}`, err);
+        console.error(`📍 URL resuelta: ${resolvedUrl}`);
         onError?.(err);
       }
     );
@@ -778,26 +794,68 @@ export default class ArtGallery3D {
   async createArtworks() {
     try {
       let artworksData = null;
+      console.log("🔄 Intentando cargar artworks.json...");
+
       // 1) Try public path '/assets/artworks.json'
       try {
+        console.log("📍 Intentando ruta pública: /assets/artworks.json");
         const r1 = await fetch("/assets/artworks.json");
-        if (r1.ok) artworksData = await r1.json();
-      } catch {}
+        if (r1.ok) {
+          artworksData = await r1.json();
+          console.log(
+            "✅ Artworks cargados desde ruta pública:",
+            artworksData.length,
+            "obras"
+          );
+        } else {
+          console.log("❌ Ruta pública falló con status:", r1.status);
+        }
+      } catch (err) {
+        console.log("❌ Error en ruta pública:", err.message);
+      }
+
       // 2) Try public root '/artworks.json'
       if (!artworksData) {
         try {
+          console.log("📍 Intentando ruta raíz: /artworks.json");
           const r2 = await fetch("/artworks.json");
-          if (r2.ok) artworksData = await r2.json();
-        } catch {}
+          if (r2.ok) {
+            artworksData = await r2.json();
+            console.log(
+              "✅ Artworks cargados desde ruta raíz:",
+              artworksData.length,
+              "obras"
+            );
+          } else {
+            console.log("❌ Ruta raíz falló con status:", r2.status);
+          }
+        } catch (err) {
+          console.log("❌ Error en ruta raíz:", err.message);
+        }
       }
+
       // 3) Try module import from src assets (Vite supports JSON import)
       if (!artworksData) {
         try {
+          console.log(
+            "📍 Intentando importación de módulo: ../assets/artworks.json"
+          );
           const mod = await import("../assets/artworks.json");
           artworksData = mod.default || mod;
-        } catch {}
+          console.log(
+            "✅ Artworks cargados desde módulo:",
+            artworksData.length,
+            "obras"
+          );
+        } catch (err) {
+          console.log("❌ Error en importación de módulo:", err.message);
+        }
       }
-      if (!artworksData) throw new Error("No se pudo cargar artworks.json");
+
+      if (!artworksData) {
+        console.error("💥 No se pudo cargar artworks.json desde ninguna ruta");
+        throw new Error("No se pudo cargar artworks.json");
+      }
 
       // Precompute corridor/spacing variables
       const N = artworksData.length;

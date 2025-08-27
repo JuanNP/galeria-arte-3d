@@ -6,6 +6,7 @@
   "homepage": "https://juannp.github.io/galeria-arte-3d",
   "scripts": {
     "dev": "vite",
+    "dev:local": "vite --config vite.config.dev.js",
     "build": "vite build",
     "preview": "vite preview",
     "predeploy": "npm run build",

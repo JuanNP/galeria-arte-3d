@@ -2,56 +2,56 @@
   {
     "title": "El hijo del hombre",
     "artist": "René Magritte",
-    "image": "/assets/images/art_01.jpg"
+    "image": "assets/images/art_01.jpg"
   },
   {
     "title": "La joven de la perla",
     "artist": "Johannes Vermeer",
-    "image": "/assets/images/art_02.jpg"
+    "image": "assets/images/art_02.jpg"
   },
   {
     "title": "La creación de Adán",
     "artist": "Michelangelo",
-    "image": "/assets/images/art_03.jpg"
+    "image": "assets/images/art_03.jpg"
   },
   {
     "title": "La persistencia de la memoria",
     "artist": "Salvador Dalí",
-    "image": "/assets/images/art_04.jpg"
+    "image": "assets/images/art_04.jpg"
   },
   {
     "title": "La última cena",
     "artist": "Leonardo da Vinci",
-    "image": "/assets/images/art_05.jpg"
+    "image": "assets/images/art_05.jpg"
   },
   {
     "title": "La gran ola de Kanagawa",
     "artist": "Katsushika Hokusai",
-    "image": "/assets/images/art_06.jpg"
+    "image": "assets/images/art_06.jpg"
   },
   {
     "title": "El nacimiento de Venus",
     "artist": "Sandro Botticelli",
-    "image": "/assets/images/art_07.jpg"
+    "image": "assets/images/art_07.jpg"
   },
   {
     "title": "La noche estrellada",
     "artist": "Vincent van Gogh",
-    "image": "/assets/images/art_08.jpg"
+    "image": "assets/images/art_08.jpg"
   },
   {
     "title": "La Mona Lisa",
     "artist": "Leonardo da Vinci",
-    "image": "/assets/images/art_09.jpg"
+    "image": "assets/images/art_09.jpg"
   },
   {
     "title": "Las meninas",
     "artist": "Diego Velázquez",
-    "image": "/assets/images/art_10.jpg"
+    "image": "assets/images/art_10.jpg"
   },
   {
     "title": "El grito",
     "artist": "Edvard Munch",
-    "image": "/assets/images/art_11.jpg"
+    "image": "assets/images/art_11.jpg"
   }
 ]

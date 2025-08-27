@@ -12,8 +12,8 @@ export default defineConfig({
     outDir: "dist",
     assetsDir: "assets",
   },
-  // Base path para GitHub Pages
-  base: "/galeria-arte-3d/",
+  // Sin base path para desarrollo local
+  base: "/",
   resolve: {
     alias: {
       "@assets": resolve(__dirname, "assets"),
@@ -22,4 +22,6 @@ export default defineConfig({
   },
   // Los archivos en assets/ se sirven desde la raíz
   publicDir: "assets",
+  // Configuración adicional para servir assets correctamente
+  assetsInclude: ["**/*.jpg", "**/*.png", "**/*.jpeg", "**/*.gif", "**/*.webp"],
 });
