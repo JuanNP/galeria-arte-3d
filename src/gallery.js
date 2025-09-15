@@ -132,14 +132,7 @@ export default class ArtGallery3D {
     // For development: assets are served from root when publicDir is set to "assets"
     // For production: assets are served from base path
     if (path.startsWith("assets/")) {
-      // Check if we're in development or production
-      if (import.meta.env.DEV) {
-        // Development: assets served from root
-        return "/" + path;
-      } else {
-        // Production: assets served from base path (GitHub Pages)
-        return "/galeria-arte-3d/" + path;
-      }
+      return "/galeria-arte-3d/" + path;
     }
 
     // If starts with '/': assume public root

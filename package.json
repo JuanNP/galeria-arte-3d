@@ -4,13 +4,16 @@
   "description": "Galería de arte 3D interactiva con navegación inmersiva",
   "main": "index.html",
   "homepage": "https://juannp.github.io/galeria-arte-3d",
+  "repository": "https://github.com/JuanNP/galeria-arte-3d.git",
+  "author": "JuanNP <juannp2908@gmail.com>",
   "scripts": {
     "dev": "vite",
     "dev:local": "vite --config vite.config.dev.js",
+    "clean": "rimraf dist",
     "build": "vite build",
     "preview": "vite preview",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "predeploy": "npm run clean && npm run build",
+    "deploy": "gh-pages -d dist -b gh-pages -r https://github.com/JuanNP/galeria-arte-3d.git -u \"JuanNP <juannp2908@gmail.com>\""
   },
   "dependencies": {
     "gsap": "^3.12.2",
@@ -21,6 +24,7 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.0",
     "gh-pages": "^6.3.0",
+    "rimraf": "^5.0.5",
     "vite": "^5.0.0"
   },
   "keywords": [
@@ -30,6 +34,5 @@
     "threejs",
     "interactivo"
   ],
-  "author": "Tu Nombre",
   "license": "MIT"
 }
