@@ -2,31 +2,38 @@
   {
     "title": "El hijo del hombre",
     "artist": "René Magritte",
+    "description": "Margritte nos muestra un hombre con la cara parcialmente cubierta por una manzana, dandonos una vision surrealista de la naturaleza de la realidad, la ilusión, la percepción y la identidad",
     "image": "art_01.jpg"
   },
   {
     "title": "La joven de la perla",
     "artist": "Johannes Vermeer",
+    "description": "Se trata de un tronie, un género pictórico típico de la holanda del siglo XVII que significa “rostro” o “expresión”, y que consiste en la simple representación de la cara de un personaje anónimo que no tenían intención de ser un retrato identificable y que se producían para demostrar la pericia de un artista.",
+
     "image": "art_02.jpg"
   },
   {
     "title": "La creación de Adán",
     "artist": "Michelangelo",
+    "description": "Uno de los frescos estrella de la Capilla Sixtina es esta representación del episodio bíblico del Génesis en el que Dios da vida al primer hombre.",
     "image": "art_03.jpg"
   },
   {
     "title": "La persistencia de la memoria",
     "artist": "Salvador Dalí",
+    "description": "Un simple paisaje marino (típico del Cadaqués daliniano, con el cabo Creus y su costa escarpada) en el que hay una escena insólita: una extraña criatura durmiendo o quizás inerte sobre la arena (hay quien ve un autorretrato del pintor) y unos relojes que se derriten sobre ella y sobre otros elementos del cuadro.",
     "image": "art_04.jpg"
   },
   {
     "title": "La última cena",
     "artist": "Leonardo da Vinci",
+    "description": "La última cena es una pintura al fresco del siglo XV que representa la última cena de Jesús con sus discípulos. Es una obra maestra de la pintura renacentista que muestra la complejidad de la relación entre Jesús y sus discípulos, así como la importancia de la comunión en la religión cristiana.",
     "image": "art_05.jpg"
   },
   {
     "title": "La gran ola de Kanagawa",
     "artist": "Katsushika Hokusai",
+    "description": "La gran ola de Kanagawa es una obra de arte japonesa que representa una gran ola que se avecina sobre la costa. Es una obra maestra de la pintura japonesa que muestra la fuerza y la belleza de la naturaleza.",
     "image": "art_06.jpg"
   },
   {
@@ -38,21 +45,25 @@
   {
     "title": "La noche estrellada",
     "artist": "Vincent van Gogh",
+    "description": "Van Gogh miraba por la ventana del sanatorio de Saint-Rémy. Ya no tenía el lóbulo de su oreja y se sentía cada vez más acosado por las alucinaciones.\n\nCuando miraba los cipreses del jardín, éstos parecían vibrar. Cuando miraba al cielo nocturno, las estrellas parecían estar vivas. Eso es lo que captó en este lienzo que es hoy uno de los más famosos de la historia del arte.",
     "image": "art_08.jpg"
   },
   {
     "title": "La Mona Lisa",
     "artist": "Leonardo da Vinci",
+    "description": "Leonardo da Vinci, uno de los más destacados artistas (pintores, ingenieros, poetas, anatomistas, etc) del Renacimiento italiano supo experimentar en cada una de sus pinturas tomando siempre la observación de la sabia naturaleza como el primer recurso al que todo buen pintor debía apelar. En este cuadro, la Mona Lisa, supone ser el retrato de boda de Lisa Gherardini, esposa de Il Giocondo.",
     "image": "art_09.jpg"
   },
   {
     "title": "Las meninas",
     "artist": "Diego Velázquez",
+    "description": "Es mucho más que un simple cuadro. Es una de las obras de arte más estudiadas de la historia y aún así, no todos los historiadores están de acuerdo en su significado, género e incluso fecha.\n\nEspejos, cuadros dentro de cuadros, gente que mira a los ojos al espectador… Los secretos que oculta este lienzo de figuras a tamaño natural son casi tan fascinantes como su asombrosa técnica. Intentaremos desde aquí comprender qué quiso decirnos este genio de la pintura con una de sus obras más complejas a todos los niveles.",
     "image": "art_10.jpg"
   },
   {
     "title": "El grito",
     "artist": "Edvard Munch",
+    "description": "Todos podemos sentirnos identificados con su mensaje: el humano moderno en un momento de profunda angustia y desesperación existencial. Es un mensaje universal, que trasciende de sexos, razas y nacionalidades. Por ello «El grito» es considerado uno de los cuadros más importantes de la historia del arte.",
     "image": "art_11.jpg"
   }
 ]
