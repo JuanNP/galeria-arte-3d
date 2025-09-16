@@ -815,15 +815,10 @@ export default class ArtGallery3D {
   async createArtworks() {
     try {
       const base = (import.meta.env && import.meta.env.BASE_URL) || "/";
-      const url = base + "assets/artworks.json";
+      const url = base + "artworks.json";
       const res = await fetch(url);
+      res.status === 404 && (res = await fetch(base + "assets/artworks.json"));
       const artworksData = await res.json();
-
-      if (!artworksData) {
-        const url = base + "artworks.json";
-        const res = await fetch(url);
-        artworksData = await res.json();
-      }
 
       if (!artworksData) {
         console.error("💥 No se pudo cargar artworks.json desde ninguna ruta");
