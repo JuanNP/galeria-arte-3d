@@ -3,11 +3,6 @@ import { useEffect, useRef, useState } from "react";
 export default function App() {
   const galleryRef = useRef(null);
   const [uiHidden, setUiHidden] = useState(false);
-  const [room, setRoom] = useState({
-    key: "galeria",
-    name: "Galería",
-    description: "Pasillo de galería con paredes blancas y piso gris.",
-  });
   const [selectedArtwork, setSelectedArtwork] = useState(null);
 
   useEffect(() => {
@@ -15,7 +10,6 @@ export default function App() {
     import("./gallery.js").then(({ default: ArtGallery3D }) => {
       if (!isMounted) return;
       galleryRef.current = new ArtGallery3D({
-        onRoomChange: (info) => setRoom(info),
         onArtworkSelect: (art) => setSelectedArtwork(art),
       });
     });
@@ -108,6 +102,9 @@ export default function App() {
             </li>
             <li>
               <strong>Espacio</strong> - Vista de la obra mas cercana
+            </li>
+            <li>
+              <strong>Escape</strong> - Salir de la vista de obra
             </li>
           </ul>
         </div>

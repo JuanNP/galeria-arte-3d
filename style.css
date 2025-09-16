@@ -163,6 +163,22 @@ body {
     opacity: 0.9;
 }
 
+#artwork-title {
+    font-size: 1.2rem;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+#artwork-artist {
+    font-size: 1rem;
+    margin-bottom: 10px;
+}
+
+#artwork-description {
+    font-size: 0.9rem;
+    margin-bottom: 10px;
+}
+
 /* Instructions */
 .instructions {
     position: absolute;

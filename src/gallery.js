@@ -122,11 +122,50 @@ export default class ArtGallery3D {
     });
   }
 
+  // --- Build-time image URL map (so Vite places images in dist and returns BASE_URL-aware URLs)
+  _imageURLMap = import.meta.glob("/assets/images/**/*", {
+    eager: true,
+    as: "url",
+  });
+  _imageURLMapAlt = import.meta.glob("/images/**/*", {
+    eager: true,
+    as: "url",
+  });
+
+  /**
+   * Resolve an artwork image path to a final URL that already includes the correct BASE_URL.
+   * Supports values like:
+   *   "art_01.jpg"                     (filename only)
+   *   "assets/images/art_01.jpg"       (relative path)
+   *   "/assets/images/art_01.jpg"      (absolute from site root)
+   *   "images/art_01.jpg" or "/images/art_01.jpg"
+   * If not found in the glob maps, falls back to _resolveAssetUrl.
+   */
+  _resolveArtworkImage(path) {
+    if (!path) return path;
+    // If caller passed just a filename, try "/assets/images/" first, then "/images/"
+    const onlyName = !path.includes("/");
+    if (onlyName) {
+      const p1 = "/assets/images/" + path;
+      if (this._imageURLMap[p1]) return this._imageURLMap[p1];
+      const p2 = "/images/" + path;
+      if (this._imageURLMapAlt[p2]) return this._imageURLMapAlt[p2];
+      return this._resolveAssetUrl(p1); // sensible default
+    }
+
+    // Normalize to absolute-with-leading-slash to match glob keys
+    let abs = path.startsWith("/") ? path : "/" + path.replace(/^\/+/, "");
+    // Prefer assets/images, otherwise images
+    if (this._imageURLMap[abs]) return this._imageURLMap[abs];
+    if (this._imageURLMapAlt[abs]) return this._imageURLMapAlt[abs];
+    return this._resolveAssetUrl(path);
+  }
+
   // Resolve asset URLs for Vite development and production
   _resolveAssetUrl(path) {
     if (!path) return path;
     if (/^(https?:)?\/\//.test(path) || /^data:/.test(path)) return path;
-    const base = (import.meta.env && import.meta.env.BASE_URL) || "/";
+    const base = "/";
     if (path.startsWith("/")) return base + path.slice(1);
     return base + path;
   }
@@ -136,12 +175,9 @@ export default class ArtGallery3D {
     const loader = new THREE.TextureLoader();
     const resolvedUrl = this._resolveAssetUrl(url);
 
-    console.log(`🖼️  Cargando textura: ${url} -> ${resolvedUrl}`);
-
     loader.load(
       resolvedUrl,
       (tex) => {
-        console.log(`✅ Textura cargada exitosamente: ${url}`);
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.generateMipmaps = true;
         tex.anisotropy = Math.min(
@@ -317,7 +353,18 @@ export default class ArtGallery3D {
 
     // Keyboard handling with smoother movement
     document.addEventListener("keydown", (event) => {
+      // Allow Escape to work even when view is locked
+      if (event.code === "Escape") {
+        console.log("Escape pressed");
+        this.deselectArtwork();
+        // Also call the callback to update React state
+        this.onArtworkSelect(null);
+        return;
+      }
+
+      // Block other keys when view is locked
       if (this._isViewLocked) return;
+
       if (event.code === "KeyW") this._keys.w = true;
       if (event.code === "KeyS") this._keys.s = true;
       if (event.code === "Space") this.selectNearestArtwork?.();
@@ -773,6 +820,12 @@ export default class ArtGallery3D {
       const artworksData = await res.json();
 
       if (!artworksData) {
+        const url = base + "artworks.json";
+        const res = await fetch(url);
+        artworksData = await res.json();
+      }
+
+      if (!artworksData) {
         console.error("💥 No se pudo cargar artworks.json desde ninguna ruta");
         throw new Error("No se pudo cargar artworks.json");
       }
@@ -797,7 +850,7 @@ export default class ArtGallery3D {
 
         const artworkData = {
           ...data,
-          image: this._resolveAssetUrl(data.image),
+          image: this._resolveArtworkImage(data.image),
           position: [xOffset, y, z],
           side: sideRight ? "right" : "left",
         };
@@ -835,7 +888,7 @@ export default class ArtGallery3D {
     // Prefer custom image if provided; otherwise use generated textures with LOD
     let canvas = null;
     if (data.image) {
-      const imgUrl = this._resolveAssetUrl(data.image);
+      const imgUrl = this._resolveArtworkImage(data.image);
       canvas = new THREE.Mesh(canvasGeometry, canvasMaterial);
       canvas.position.z = 0.06;
       canvas.castShadow = false; // do not let canvas be affected by light/shadows
