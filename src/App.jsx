@@ -5,17 +5,49 @@ export default function App() {
   const [uiHidden, setUiHidden] = useState(false);
   const [selectedArtwork, setSelectedArtwork] = useState(null);
   const [showIntro, setShowIntro] = useState(true);
-  const [showDoors, setShowDoors] = useState(false);
-  const [galleryReady, setGalleryReady] = useState(false);
+  const [showDoors, setShowDoors] = useState(false); // overlay de puertas visible
+  const [showDoorAnimation, setShowDoorAnimation] = useState(false); // animando apertura
+  const [galleryReady, setGalleryReady] = useState(false); // preload para habilitar botón
   const [isTransitioning, setIsTransitioning] = useState(false);
+
+  const initGallery = async () => {
+    try {
+      // Mostrar puertas cerradas como pantalla de carga
+      setShowDoors(true);
+
+      const { default: ArtGallery3D } = await import("./gallery.js");
+
+      // Crear la galería y esperar a que quede lista para visualizarse
+      const instance = await new ArtGallery3D({
+        onArtworkSelect: (art) => setSelectedArtwork(art),
+      });
+      galleryRef.current = instance;
+
+      // Iniciar animación de apertura cuando la escena ya está lista
+      setShowDoorAnimation(true);
+
+      // Ocultar puertas al terminar la animación (sin mostrar textos de loading)
+      // Asegúrate de que el tiempo coincide con tu animación CSS (ej. 2000-3000ms)
+      setTimeout(() => {
+        setShowDoors(false);
+        setShowDoorAnimation(false);
+        setIsTransitioning(false);
+      }, 2500);
+    } catch (error) {
+      console.error(error);
+      // En caso de error, quita las puertas para no bloquear la UI
+      setShowDoors(false);
+      setShowDoorAnimation(false);
+      setIsTransitioning(false);
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
+    // Precargar la galería pero no inicializarla hasta que se presione el botón
     import("./gallery.js").then(({ default: ArtGallery3D }) => {
       if (!isMounted) return;
-      galleryRef.current = new ArtGallery3D({
-        onArtworkSelect: (art) => setSelectedArtwork(art),
-      });
+      // Solo marcar como lista para el botón, pero no crear la instancia aún
       setGalleryReady(true);
     });
     return () => {
@@ -29,31 +61,18 @@ export default function App() {
     };
   }, []);
 
+  // Inicializar la galería cuando se presiona el botón
+  useEffect(() => {
+    if (isTransitioning && !galleryRef.current) {
+      initGallery();
+    }
+  }, [isTransitioning]);
+
   const handleEnterGallery = () => {
-    setIsTransitioning(true);
+    // Empezamos transición: puertas cerradas y lanzamos init
     setShowDoors(true);
-
-    // Ocultar la intro inmediatamente para evitar el flash
-    setTimeout(() => {
-      setShowIntro(false);
-    }, 100);
-
-    // Esperar a que la galería esté lista y luego completar la transición
-    const checkGalleryReady = () => {
-      if (galleryReady) {
-        // La galería está lista, completar la transición después de la animación
-        setTimeout(() => {
-          setShowDoors(false);
-          setIsTransitioning(false);
-        }, 1800); // Un poco antes del final de la animación
-      } else {
-        // La galería aún no está lista, esperar un poco más
-        setTimeout(checkGalleryReady, 100);
-      }
-    };
-
-    // Iniciar verificación después de un pequeño delay
-    setTimeout(checkGalleryReady, 200);
+    setIsTransitioning(true);
+    setShowIntro(false); // ocultar la intro de inmediato
   };
 
   return (
@@ -75,33 +94,27 @@ export default function App() {
         </div>
       )}
 
-      {/* Animación de Puertas */}
+      {/* Puertas: actúan como pantalla de carga; se abren cuando la galería está lista */}
       {showDoors && (
-        <div className="doors-animation">
-          <div className="door left-door"></div>
-          <div className="door right-door"></div>
-          {/* Overlay negro para transición suave */}
-          <div className="doors-overlay"></div>
-        </div>
-      )}
-
-      {/* Pantalla de transición */}
-      {isTransitioning && !showDoors && (
-        <div className="transition-screen">
-          <div className="transition-content">
-            <div className="transition-spinner"></div>
-            <p>Preparando la galería...</p>
+        <div
+          className={`doors-container ${
+            showDoorAnimation ? "opening" : "closed"
+          }`}
+        >
+          <div className="door left-door">
+            <div className="door-content">
+              <div className="door-handle"></div>
+              <div className="door-pattern"></div>
+            </div>
+          </div>
+          <div className="door right-door">
+            <div className="door-content">
+              <div className="door-handle"></div>
+              <div className="door-pattern"></div>
+            </div>
           </div>
         </div>
       )}
-
-      <div id="loading-screen">
-        <div className="loading-content">
-          <div className="loading-spinner"></div>
-          <h2>Cargando Galería de Arte</h2>
-          <p>Preparando tu experiencia inmersiva...</p>
-        </div>
-      </div>
 
       <nav className="navigation-ui">
         <div className="nav-header">
@@ -186,8 +199,8 @@ export default function App() {
         id="canvas-container"
         style={{
           display: showIntro ? "none" : "block",
-          opacity: isTransitioning ? 0 : 1,
-          transition: "opacity 0.5s ease-in-out",
+          opacity: 1, // visible detrás de las puertas en todo momento
+          transition: "opacity 0.6s ease-in-out",
         }}
       ></div>
 

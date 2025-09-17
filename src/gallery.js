@@ -48,8 +48,10 @@ export default class ArtGallery3D {
       0.1,
       1000
     );
-    this.camera.position.set(0, 2, 10);
-    this.camera.lookAt(0, 2, 0);
+    // Posición inicial al final del pasillo (Z positivo)
+    const corridorLength = 80;
+    this.camera.position.set(0, 2, corridorLength / 2 - 5);
+    this.camera.lookAt(0, 2, -corridorLength / 2);
     this.camera.layers.enable(1);
     // Cache initial camera transform for reset
     this._initialCamPos = this.camera.position.clone();
@@ -1376,15 +1378,17 @@ export default class ArtGallery3D {
       this.camera.position.copy(this._initialCamPos);
       this.camera.quaternion.copy(this._initialCamQuat);
     } else {
-      // Fallback default
-      this.camera.position.set(0, 2, 10);
-      this.camera.lookAt(0, 2, 0);
+      // Fallback default - posición al final del pasillo
+      const corridorLength = 80;
+      this.camera.position.set(0, 2, corridorLength / 2 - 5);
+      this.camera.lookAt(0, 2, -corridorLength / 2);
     }
     // Reset mouse-look smoothing targets
     this._targetRotationX = 0;
     this._targetRotationY = 0;
     // Ensure camera is oriented to initial look direction
-    this.camera.lookAt(0, 2, 0);
+    const corridorLength = 80;
+    this.camera.lookAt(0, 2, -corridorLength / 2);
     this._lookAtTarget = new THREE.Vector3(0, 2, 0);
     this._targetRotationX = 0;
     this._targetRotationY = 0;

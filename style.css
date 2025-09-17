@@ -1,4 +1,8 @@
 /* Reset and Base Styles */
+:root {
+    /* Mantener sincronizado con el setTimeout de apertura en App.jsx */
+    --door-open-duration: 2.5s;
+}
 * {
     margin: 0;
     padding: 0;
@@ -398,16 +402,18 @@ body {
     100% { filter: drop-shadow(0 0 30px rgba(100, 255, 218, 0.6)); }
 }
 
-/* Animación de Puertas */
-.doors-animation {
+/* Contenedor de Puertas (Carga y Animación) */
+.doors-container {
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100vh;
+    background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 50%, #16213e 100%);
     z-index: 2500;
-    pointer-events: none;
     perspective: 1000px;
+    pointer-events: none;
+    will-change: transform;
 }
 
 .door {
@@ -415,37 +421,193 @@ body {
     top: 0;
     width: 50%;
     height: 100%;
-    background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 50%, #16213e 100%);
-    border: 2px solid rgba(100, 255, 218, 0.3);
-    box-shadow: inset 0 0 50px rgba(100, 255, 218, 0.1);
+    background: linear-gradient(145deg, #2a2a3e, #1a1a2e);
+    border: 4px solid #64ffda;
+    box-shadow: 
+        0 0 50px rgba(100, 255, 218, 0.3),
+        inset 0 0 30px rgba(100, 255, 218, 0.1);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    transition: all 0.3s ease;
 }
 
 .left-door {
     left: 0;
     transform-origin: left center;
-    border-right: 1px solid rgba(100, 255, 218, 0.4);
-    animation: openLeftDoor 2.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+    border-right: 2px solid rgba(100, 255, 218, 0.4);
+    border-radius: 0 20px 20px 0;
 }
 
 .right-door {
     right: 0;
     transform-origin: right center;
-    border-left: 1px solid rgba(100, 255, 218, 0.4);
-    animation: openRightDoor 2.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+    border-left: 2px solid rgba(100, 255, 218, 0.4);
+    border-radius: 20px 0 0 20px;
 }
 
-.doors-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
+/* Contenido de las puertas */
+.door-content {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
     height: 100%;
-    background: linear-gradient(45deg, 
-        rgba(0, 0, 0, 0.8) 0%, 
-        rgba(10, 10, 26, 0.9) 50%, 
-        rgba(0, 0, 0, 0.8) 100%
-    );
-    animation: fadeOutOverlay 2.5s ease-out forwards;
+    width: 100%;
+}
+
+.door-handle {
+    width: 30px;
+    height: 80px;
+    background: linear-gradient(145deg, #64ffda, #00bcd4);
+    border-radius: 15px;
+    box-shadow: 
+        0 6px 12px rgba(0, 0, 0, 0.4),
+        inset 0 2px 0 rgba(255, 255, 255, 0.3);
+    margin-bottom: 30px;
+    animation: handleGlow 2s ease-in-out infinite alternate;
+}
+
+.door-pattern {
+    width: 200px;
+    height: 300px;
+    background: 
+        radial-gradient(circle at 30% 30%, rgba(100, 255, 218, 0.15) 0%, transparent 50%),
+        radial-gradient(circle at 70% 70%, rgba(0, 188, 212, 0.15) 0%, transparent 50%),
+        linear-gradient(45deg, transparent 30%, rgba(100, 255, 218, 0.08) 50%, transparent 70%);
+    border-radius: 15px;
+    position: relative;
+    border: 1px solid rgba(100, 255, 218, 0.2);
+}
+
+.door-pattern::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 100px;
+    height: 100px;
+    border: 3px solid rgba(100, 255, 218, 0.4);
+    border-radius: 50%;
+    animation: patternPulse 3s ease-in-out infinite;
+}
+
+.door-pattern::after {
+    content: '';
+    position: absolute;
+    top: 20%;
+    left: 20%;
+    width: 60px;
+    height: 60px;
+    border: 2px solid rgba(100, 255, 218, 0.2);
+    border-radius: 50%;
+    animation: patternPulse 4s ease-in-out infinite reverse;
+}
+
+/* Señal de galería */
+.gallery-sign {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    z-index: 10;
+    background: rgba(0, 0, 0, 0.8);
+    padding: 40px;
+    border-radius: 20px;
+    backdrop-filter: blur(15px);
+    border: 2px solid rgba(100, 255, 218, 0.4);
+    box-shadow: 0 0 30px rgba(100, 255, 218, 0.2);
+}
+
+.gallery-sign h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: 3rem;
+    color: #64ffda;
+    margin-bottom: 25px;
+    text-shadow: 0 0 30px rgba(100, 255, 218, 0.6);
+    letter-spacing: 2px;
+}
+
+.loading-indicator {
+    color: #ffffff;
+}
+
+.loading-dots {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.loading-dots span {
+    width: 16px;
+    height: 16px;
+    background: #64ffda;
+    border-radius: 50%;
+    animation: dotBounce 1.4s ease-in-out infinite both;
+    box-shadow: 0 0 10px rgba(100, 255, 218, 0.5);
+}
+
+.loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+.loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+.loading-dots span:nth-child(3) { animation-delay: 0s; }
+
+.loading-indicator p {
+    font-size: 1.2rem;
+    opacity: 0.9;
+    font-family: 'Inter', sans-serif;
+    letter-spacing: 1px;
+}
+
+/* Animaciones */
+@keyframes handleGlow {
+    0% { 
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4), inset 0 2px 0 rgba(255, 255, 255, 0.3);
+        transform: scale(1);
+    }
+    100% { 
+        box-shadow: 0 6px 25px rgba(100, 255, 218, 0.6), inset 0 2px 0 rgba(255, 255, 255, 0.4);
+        transform: scale(1.05);
+    }
+}
+
+@keyframes patternPulse {
+    0%, 100% { 
+        opacity: 0.3; 
+        transform: translate(-50%, -50%) scale(1); 
+    }
+    50% { 
+        opacity: 0.8; 
+        transform: translate(-50%, -50%) scale(1.1); 
+    }
+}
+
+@keyframes dotBounce {
+    0%, 80%, 100% { transform: scale(0); }
+    40% { transform: scale(1); }
+}
+
+/* Animación de apertura de puertas (solo cuando se agrega la clase .opening) */
+.doors-container.opening .left-door {
+    animation: openLeftDoor var(--door-open-duration) cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+.doors-container.opening .right-door {
+    animation: openRightDoor var(--door-open-duration) cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+/* Estado estático (cerrado) por defecto */
+.doors-container.closed .left-door,
+.doors-container:not(.opening) .left-door {
+    transform: rotateY(0deg);
+}
+
+.doors-container.closed .right-door,
+.doors-container:not(.opening) .right-door {
+    transform: rotateY(0deg);
 }
 
 @keyframes openLeftDoor {
@@ -476,12 +638,6 @@ body {
         transform: rotateY(90deg);
         box-shadow: inset 0 0 100px rgba(100, 255, 218, 0.3);
     }
-}
-
-@keyframes fadeOutOverlay {
-    0% { opacity: 1; }
-    70% { opacity: 0.8; }
-    100% { opacity: 0; }
 }
 
 /* Pantalla de Transición */
