@@ -71,6 +71,13 @@ export default class ArtGallery3D {
     this._clock = new THREE.Clock();
     this._keys = { w: false, s: false };
     this._moveSpeed = 10.0;
+    // Márgenes del pasillo (asimétricos): inicio y final
+    // Márgenes y leads del pasillo
+    this._corridorStartMargin = 8.0; // margen inicio (Z−)
+    this._corridorStartViewLead = 10.0; // retroceso extra detrás de la 1ª obra (solo Z−)
+    this._corridorEndViewLead = 0.0; // avance extra más allá de la última obra (solo Z+)
+    this._corridorWallSafe = 0.5; // distancia mínima segura a las paredes reales
+    this._corridorEndMargin = 8.0;
     // Slight self-illumination so images don't look too dark under spot shadows
     this._artEmissiveBoost = 0.45; // subtle self-illumination to keep details visible
     // If true, artworks use an unlit material (always fully illuminated)
@@ -355,7 +362,6 @@ export default class ArtGallery3D {
     document.addEventListener("keydown", (event) => {
       // Allow Escape to work even when view is locked
       if (event.code === "Escape") {
-        console.log("Escape pressed");
         this.deselectArtwork();
         // Also call the callback to update React state
         this.onArtworkSelect(null);
@@ -425,13 +431,29 @@ export default class ArtGallery3D {
     if (this._keys.s) dz += this._moveSpeed * dt;
     if (!dz) return;
     this.camera.position.z += dz;
-    const marginZ = 2.5;
+    const marginStart = this._corridorStartMargin;
+    const marginEnd = this._corridorEndMargin;
     const corridorLength = this.corridor?.length || 80;
-    const halfLen = corridorLength / 2 - marginZ;
+    const halfLen = corridorLength / 2;
+
+    const startZ = -halfLen + marginStart; // 1ª obra (extremo Z−)
+    const endZ = halfLen - marginEnd; // última obra (extremo Z+)
+
+    // Solo el inicio usa _corridorStartViewLead
+    const minZ = Math.max(
+      -halfLen + this._corridorWallSafe,
+      startZ - this._corridorEndViewLead
+    );
+    // Solo el final usa _corridorEndViewLead
+    const maxZ = Math.min(
+      halfLen - this._corridorWallSafe,
+      endZ + this._corridorStartViewLead
+    );
+
     this.camera.position.z = THREE.MathUtils.clamp(
       this.camera.position.z,
-      -halfLen,
-      halfLen
+      minZ,
+      maxZ
     );
     this.camera.position.x = 0;
     this.camera.position.y = 2;
@@ -650,6 +672,15 @@ export default class ArtGallery3D {
       roughness: 0.85,
       metalness: 0.0,
     });
+    // Mapa/material para paredes de cierre (frontal/trasera) con repetición acorde a su anchura
+    const endWallMap = this.generateWhiteNoiseTexture(256, "#ffffff", 0.03);
+    endWallMap.repeat.set(corridorWidth / 6, wallHeight / 4);
+    const endWallMaterial = new THREE.MeshStandardMaterial({
+      color: 0xadadad,
+      map: endWallMap,
+      roughness: 0.85,
+      metalness: 0.0,
+    });
     const leftWall = new THREE.Mesh(sideWallGeometry, wallMaterial);
     leftWall.position.set(-corridorWidth / 2, wallHeight / 2, 0);
     leftWall.castShadow = true;
@@ -660,9 +691,68 @@ export default class ArtGallery3D {
     rightWall.castShadow = true;
     rightWall.receiveShadow = true;
     corridorGroup.add(rightWall);
+
+    // Paredes de cierre (frontal y trasera) para cerrar el pasillo
+    const halfLen = corridorLength / 2;
+    const endWallGeometry = new THREE.BoxGeometry(
+      corridorWidth,
+      wallHeight,
+      wallThickness
+    );
+    const frontWall = new THREE.Mesh(endWallGeometry, endWallMaterial);
+    frontWall.position.set(0, wallHeight / 2, -halfLen); // extremo Z−
+    frontWall.castShadow = true;
+    frontWall.receiveShadow = true;
+    corridorGroup.add(frontWall);
+    const backWall = new THREE.Mesh(endWallGeometry, endWallMaterial);
+    backWall.position.set(0, wallHeight / 2, halfLen); // extremo Z+
+    backWall.castShadow = true;
+    backWall.receiveShadow = true;
+    corridorGroup.add(backWall);
     // Store wall references for collision checks
+    this.corridor.frontWall = frontWall;
+    this.corridor.backWall = backWall;
     this.corridor.leftWall = leftWall;
     this.corridor.rightWall = rightWall;
+
+    // Focos suaves para las paredes de cierre, para igualar sombras/luces con las laterales
+    const endSpotIntensity = 0.55; // algo menos que los focos de obra
+    const endSpotAngle = Math.PI / 7;
+    const endSpotPenumbra = 0.45;
+
+    // Pared frontal (Z-)
+    const frontSpot = new THREE.SpotLight(
+      0xffffff,
+      endSpotIntensity,
+      16,
+      endSpotAngle,
+      endSpotPenumbra,
+      1.5
+    );
+    frontSpot.position.set(0, wallHeight - 0.5, -halfLen + 0.6);
+    frontSpot.target.position.set(0, wallHeight * 0.35 + 1.2, -halfLen + 0.01);
+    frontSpot.castShadow = true;
+    frontSpot.shadow.mapSize.set(1024, 1024);
+    frontSpot.shadow.bias = -0.0002;
+    corridorGroup.add(frontSpot);
+    corridorGroup.add(frontSpot.target);
+
+    // Pared trasera (Z+)
+    const backSpot = new THREE.SpotLight(
+      0xffffff,
+      endSpotIntensity,
+      16,
+      endSpotAngle,
+      endSpotPenumbra,
+      1.5
+    );
+    backSpot.position.set(0, wallHeight - 0.5, halfLen - 0.6);
+    backSpot.target.position.set(0, wallHeight * 0.35 + 1.2, halfLen - 0.01);
+    backSpot.castShadow = true;
+    backSpot.shadow.mapSize.set(1024, 1024);
+    backSpot.shadow.bias = -0.0002;
+    corridorGroup.add(backSpot);
+    corridorGroup.add(backSpot.target);
 
     // Riel de iluminación
     this.createLightTracks(
@@ -783,6 +873,67 @@ export default class ArtGallery3D {
       this._spots.push(spot);
     }
   }
+
+  repositionArtworksAlongCorridor() {
+    // Recalcula Z de todas las obras según los márgenes actuales sin cambiar su lado (X) ni altura (Y)
+    if (!this.artworks || !this.artworks.length) return;
+    const N = this.artworks.length;
+    const corridorWidth = this.corridor?.width || 6;
+    const corridorLength = this.corridor?.length || 80;
+    const halfLen = corridorLength / 2;
+    const startMargin = this._corridorStartMargin;
+    const endMargin = this._corridorEndMargin;
+    const frameDepth = 0.1;
+    const gap = 0.12;
+    const xInner = corridorWidth / 2 - (frameDepth + gap);
+    const startZ = -halfLen + startMargin;
+    const usableLen = corridorLength - startMargin - endMargin;
+    const spacingZ = N > 1 ? usableLen / (N - 1) : 0;
+
+    this.artworks.forEach((a, i) => {
+      if (!a || !a.mesh) return;
+      const sideRight = i % 2 === 0;
+      const xOffset = sideRight ? xInner : -xInner;
+      const z = startZ + i * spacingZ;
+
+      // Mantener Y actual
+      const y = a.mesh.position.y;
+      a.side = sideRight ? "right" : "left";
+      a.position = [xOffset, y, z];
+      a.mesh.position.set(xOffset, y, z);
+      a.mesh.rotation.y = sideRight ? -Math.PI / 2 : Math.PI / 2;
+    });
+
+    // Reajustar focos si se usan por-obra
+    if (this._spots && this._spots.length) this.rebuildArtworkSpots();
+  }
+
+  updateCorridorMargins(start, end) {
+    if (typeof start === "number")
+      this._corridorStartMargin = Math.max(0, start);
+    if (typeof end === "number") this._corridorEndMargin = Math.max(0, end);
+    this.repositionArtworksAlongCorridor();
+
+    // Asegurar que la cámara respeta los nuevos límites inmediatamente
+    const corridorLength = this.corridor?.length || 80;
+    const halfLen = corridorLength / 2;
+    const startZ = -halfLen + this._corridorStartMargin;
+    const endZ = halfLen - this._corridorEndMargin;
+
+    const minZ = Math.max(
+      -halfLen + this._corridorWallSafe,
+      startZ - this._corridorEndViewLead
+    );
+    const maxZ = Math.min(
+      halfLen - this._corridorWallSafe,
+      endZ + this._corridorStartViewLead
+    );
+    this.camera.position.z = THREE.MathUtils.clamp(
+      this.camera.position.z,
+      minZ,
+      maxZ
+    );
+  }
   // Public API: rebuild per-artwork spotlights after adding/removing artworks at runtime
   refreshLighting() {
     this.rebuildArtworkSpots();
@@ -830,12 +981,14 @@ export default class ArtGallery3D {
       const corridorWidth = this.corridor?.width || 6;
       const corridorLength = this.corridor?.length || 80;
       const halfLen = corridorLength / 2;
-      const endMargin = 2.0; // meters from each end cap
+      const startMargin = this._corridorStartMargin;
+      const endMargin = this._corridorEndMargin; // margen del extremo final
       const frameDepth = 0.1; // matches frame BoxGeometry depth
       const gap = 0.12; // small gap from wall to avoid z-fighting
       const xInner = corridorWidth / 2 - (frameDepth + gap);
-      const startZ = -halfLen + endMargin;
-      const spacingZ = N > 1 ? (2 * (halfLen - endMargin)) / (N - 1) : 0; // fill entire corridor
+      const startZ = -halfLen + startMargin;
+      const usableLen = corridorLength - startMargin - endMargin;
+      const spacingZ = N > 1 ? usableLen / (N - 1) : 0; // distribuir en el tramo util
 
       artworksData.forEach((data, i) => {
         const sideRight = i % 2 === 0; // alternate sides
@@ -1129,12 +1282,19 @@ export default class ArtGallery3D {
 
     // Target: recenter X only (keep current Z), at eye height
     const corridorLength = this.corridor?.length || 80;
-    const halfLen = corridorLength / 2 - 2.5; // respect movement clamps
-    const currentZ = THREE.MathUtils.clamp(
-      this.camera.position.z,
-      -halfLen,
-      halfLen
+    const halfLen = corridorLength / 2;
+    const startZ = -halfLen + this._corridorStartMargin;
+    const endZ = halfLen - this._corridorEndMargin;
+
+    const minZ = Math.max(
+      -halfLen + this._corridorWallSafe,
+      startZ - this._corridorEndViewLead
     );
+    const maxZ = Math.min(
+      halfLen - this._corridorWallSafe,
+      endZ + this._corridorStartViewLead
+    );
+    const currentZ = THREE.MathUtils.clamp(this.camera.position.z, minZ, maxZ);
     const end = new THREE.Vector3(0, 2, currentZ);
 
     // Prepare tween flags
@@ -1228,6 +1388,8 @@ export default class ArtGallery3D {
     this._lookAtTarget = new THREE.Vector3(0, 2, 0);
     this._targetRotationX = 0;
     this._targetRotationY = 0;
+
+    this.deselectArtwork();
   }
 
   hideLoadingScreen() {

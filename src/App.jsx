@@ -4,6 +4,10 @@ export default function App() {
   const galleryRef = useRef(null);
   const [uiHidden, setUiHidden] = useState(false);
   const [selectedArtwork, setSelectedArtwork] = useState(null);
+  const [showIntro, setShowIntro] = useState(true);
+  const [showDoors, setShowDoors] = useState(false);
+  const [galleryReady, setGalleryReady] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -12,6 +16,7 @@ export default function App() {
       galleryRef.current = new ArtGallery3D({
         onArtworkSelect: (art) => setSelectedArtwork(art),
       });
+      setGalleryReady(true);
     });
     return () => {
       isMounted = false;
@@ -24,8 +29,72 @@ export default function App() {
     };
   }, []);
 
+  const handleEnterGallery = () => {
+    setIsTransitioning(true);
+    setShowDoors(true);
+
+    // Ocultar la intro inmediatamente para evitar el flash
+    setTimeout(() => {
+      setShowIntro(false);
+    }, 100);
+
+    // Esperar a que la galería esté lista y luego completar la transición
+    const checkGalleryReady = () => {
+      if (galleryReady) {
+        // La galería está lista, completar la transición después de la animación
+        setTimeout(() => {
+          setShowDoors(false);
+          setIsTransitioning(false);
+        }, 1800); // Un poco antes del final de la animación
+      } else {
+        // La galería aún no está lista, esperar un poco más
+        setTimeout(checkGalleryReady, 100);
+      }
+    };
+
+    // Iniciar verificación después de un pequeño delay
+    setTimeout(checkGalleryReady, 200);
+  };
+
   return (
     <div id="app">
+      {/* Página de Introducción */}
+      {showIntro && (
+        <div className="intro-page">
+          <div className="intro-content">
+            <h1 className="intro-title">Galería de Arte 3D</h1>
+            <p className="intro-subtitle">Una experiencia inmersiva única</p>
+            <button
+              className="enter-button"
+              onClick={handleEnterGallery}
+              disabled={!galleryReady}
+            >
+              {galleryReady ? "Entrar a la Galería" : "Cargando..."}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Animación de Puertas */}
+      {showDoors && (
+        <div className="doors-animation">
+          <div className="door left-door"></div>
+          <div className="door right-door"></div>
+          {/* Overlay negro para transición suave */}
+          <div className="doors-overlay"></div>
+        </div>
+      )}
+
+      {/* Pantalla de transición */}
+      {isTransitioning && !showDoors && (
+        <div className="transition-screen">
+          <div className="transition-content">
+            <div className="transition-spinner"></div>
+            <p>Preparando la galería...</p>
+          </div>
+        </div>
+      )}
+
       <div id="loading-screen">
         <div className="loading-content">
           <div className="loading-spinner"></div>
@@ -47,7 +116,10 @@ export default function App() {
             </button>
             <button
               className="nav-btn"
-              onClick={() => galleryRef.current?.resetCamera()}
+              onClick={() => {
+                galleryRef.current?.resetCamera();
+                setSelectedArtwork(null);
+              }}
               id="reset-camera"
             >
               Reset Cámara
@@ -110,7 +182,14 @@ export default function App() {
         </div>
       </div>
 
-      <div id="canvas-container"></div>
+      <div
+        id="canvas-container"
+        style={{
+          display: showIntro ? "none" : "block",
+          opacity: isTransitioning ? 0 : 1,
+          transition: "opacity 0.5s ease-in-out",
+        }}
+      ></div>
 
       {/* <div className="room-navigation">
         <button
