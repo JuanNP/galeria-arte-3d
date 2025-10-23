@@ -81,14 +81,15 @@ export default function App() {
       {showIntro && (
         <div className="intro-page">
           <div className="intro-content">
-            <h1 className="intro-title">Galería de Arte 3D</h1>
-            <p className="intro-subtitle">Una experiencia inmersiva única</p>
+            <h1 className="intro-title">Galería de Arte</h1>
+            <h2 className="intro-title3d">3D</h2>
+            <p className="intro-subtitle">Una experiencia inmersiva</p>
             <button
               className="enter-button"
               onClick={handleEnterGallery}
               disabled={!galleryReady}
             >
-              {galleryReady ? "Entrar a la Galería" : "Cargando..."}
+              {galleryReady ? "Disfrutar de la Galería" : "Cargando..."}
             </button>
           </div>
         </div>
@@ -184,6 +185,9 @@ export default function App() {
           <ul>
             <li>
               <strong>W/S</strong> - Avanzar/Retroceder
+            </li>
+            <li>
+              <strong>A/D</strong> - Desplazamiento lateral
             </li>
             <li>
               <strong>Espacio</strong> - Vista de la obra mas cercana

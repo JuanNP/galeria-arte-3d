@@ -29,10 +29,7 @@ export default class ArtGallery3D {
     this.createRooms();
     this.createArtworks();
     this.animate();
-
-    setTimeout(() => {
-      this.hideLoadingScreen();
-    }, 1000);
+    this.hideLoadingScreen();
   }
 
   setupScene() {
@@ -48,10 +45,9 @@ export default class ArtGallery3D {
       0.1,
       1000
     );
-    // Posición inicial al final del pasillo (Z positivo)
-    const corridorLength = 80;
-    this.camera.position.set(0, 2, corridorLength / 2 - 5);
-    this.camera.lookAt(0, 2, -corridorLength / 2);
+    // Posición inicial dentro de la sala
+    this.camera.position.set(0, 1.8, 8);
+    this.camera.lookAt(0, 1.8, 0);
     this.camera.layers.enable(1);
     // Cache initial camera transform for reset
     this._initialCamPos = this.camera.position.clone();
@@ -71,8 +67,10 @@ export default class ArtGallery3D {
     this._lockedTarget = null;
     // Movement keys and speed
     this._clock = new THREE.Clock();
-    this._keys = { w: false, s: false };
+    this._keys = { w: false, s: false, a: false, d: false };
     this._moveSpeed = 10.0;
+    // Colisiones básicas
+    this._colliders = [];
     // Márgenes del pasillo (asimétricos): inicio y final
     // Márgenes y leads del pasillo
     this._corridorStartMargin = 8.0; // margen inicio (Z−)
@@ -179,6 +177,90 @@ export default class ArtGallery3D {
     return base + path;
   }
 
+  // === Layout helpers =====================================================
+  _makeSupportKey(s) {
+    // Build a stable id for a support (wall/panel side), used to group anchors
+    if (s.name) return `wall:${s.name}`;
+    if (s.type === "panel") {
+      // encode by orientation/position so both sides are unique
+      if (s.z0 != null && s.z1 != null && s.x != null)
+        return `panel:alongZ:x${s.x.toFixed(2)}`;
+      if (s.x0 != null && s.x1 != null && s.z != null)
+        return `panel:alongX:z${s.z.toFixed(2)}`;
+    }
+    return `support:${Math.random().toString(36).slice(2)}`; // fallback
+  }
+
+  _computeSupportNormal(rotY) {
+    // Normal that points from the surface towards the room interior
+    const n = new THREE.Vector3(0, 0, 1);
+    n.applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY);
+    return n.normalize();
+  }
+
+  _registerSupportSample(supportMap, s, samples, axis, start, end) {
+    const key = this._makeSupportKey(s);
+    if (!supportMap[key]) {
+      supportMap[key] = {
+        key,
+        axis, // 'x' or 'z'
+        start,
+        end,
+        rotY: s.rotY,
+        normal: this._computeSupportNormal(s.rotY),
+        list: [],
+      };
+    }
+    const group = supportMap[key];
+    for (const a of samples) {
+      const coord = axis === "z" ? a.z : a.x;
+      group.list.push({
+        ...a,
+        key,
+        axis,
+        coord,
+        start,
+        end,
+        normal: group.normal,
+      });
+    }
+  }
+
+  _fitArtworkToCell(data) {
+    // Rescale an artwork if its width would collide with neighbors on the same support
+    const key = data._supportKey;
+    if (!key || !this._supportsMap || !this._supportsMap[key]) return;
+    const group = this._supportsMap[key];
+    const arr = group.list.slice().sort((a, b) => a.coord - b.coord);
+    const idx = arr.findIndex((a) => a === data._anchor);
+    if (idx === -1) return;
+
+    const pad = 0.45; // meters of breathing room on each side
+    const leftEdge =
+      idx > 0
+        ? arr[idx - 1].coord + pad
+        : Math.min(group.start, group.end) + pad;
+    const rightEdge =
+      idx < arr.length - 1
+        ? arr[idx + 1].coord - pad
+        : Math.max(group.start, group.end) - pad;
+    const cellSpan = Math.max(0.2, Math.abs(rightEdge - leftEdge));
+
+    // width of the painting (long side along the support axis)
+    let w = Array.isArray(data.size) ? data.size[0] : 1.2;
+    let h = Array.isArray(data.size) ? data.size[1] : 0.8;
+    // Our geometries use width on X regardless; placement functions ensure alignment
+    const long = w;
+
+    if (long > cellSpan) {
+      const s = Math.max(0.5, (cellSpan / long) * 0.9);
+      w *= s;
+      h *= s;
+      data.size = [w, h];
+      data._rescaled = true;
+    }
+  }
+
   // --- Helper: load image texture with sane defaults (sRGB, mipmaps, anisotropy) ---
   _loadArtworkTexture(url, onLoad, onError) {
     const loader = new THREE.TextureLoader();
@@ -276,8 +358,13 @@ export default class ArtGallery3D {
     let mouseY = 0;
     // Store target rotations on the instance so we can reset them
     this._targetRotationX = 0;
-    this._targetRotationY = 0;
+    this._targetRotationY = this.camera?.rotation?.y || 0;
     this._freezeRotation = false;
+    // Mouse look sensitivity
+    this._mouseSensitivityX = 0.002; // sensibilidad horizontal más baja
+    this._mouseSensitivityY = 0.001;
+    this._mousePanXSensitivity = 0.006; // traslación horizontal con drag (m/px)
+    this._yawMaxStep = 0.1; // paso máximo de yaw por frame (~2.9°)
 
     this.renderer.domElement.addEventListener("mousedown", (event) => {
       isMouseDown = true;
@@ -299,11 +386,18 @@ export default class ArtGallery3D {
     });
 
     this.renderer.domElement.addEventListener("mousemove", (event) => {
-      if (isMouseDown) {
-        // Mouse-look disabled: do not change rotations
+      if (isMouseDown && !this._isViewLocked && !this._isCameraTweening) {
+        const deltaX = event.clientX - mouseX;
+        // Girar solo alrededor del sujeto (pivot = posición de la cámara)
+        this._targetRotationY -= deltaX * this._mouseSensitivityX; // yaw
+        // Normalizar a [-PI, PI] para evitar acumulación infinita
+        const TWO_PI = Math.PI * 2;
+        this._targetRotationY =
+          ((this._targetRotationY + Math.PI) % TWO_PI) - Math.PI;
+        this._targetRotationX = 0; // sin pitch
+
         mouseX = event.clientX;
         mouseY = event.clientY;
-        return;
       }
     });
 
@@ -375,46 +469,59 @@ export default class ArtGallery3D {
 
       if (event.code === "KeyW") this._keys.w = true;
       if (event.code === "KeyS") this._keys.s = true;
+      if (event.code === "KeyA") this._keys.a = true;
+      if (event.code === "KeyD") this._keys.d = true;
       if (event.code === "Space") this.selectNearestArtwork?.();
     });
     document.addEventListener("keyup", (event) => {
       if (event.code === "KeyW") this._keys.w = false;
       if (event.code === "KeyS") this._keys.s = false;
+      if (event.code === "KeyA") this._keys.a = false;
+      if (event.code === "KeyD") this._keys.d = false;
     });
 
     this.updateCameraRotation = () => {
       if (this._freezeRotation) return;
-      // Mouse look now only updates target look-at, not direct Euler angles.
-      // The actual orientation is handled by _updateSmoothLook().
-    };
+      if (this._isViewLocked) return; // cuando está bloqueado, _updateSmoothLook gestiona el target
 
-    // Mouse-look disabled: free-view orientation no longer follows mouse
-    this.renderer.domElement.addEventListener("mousemove", () => {
-      // Mouse-look disabled: free-view orientation no longer follows mouse
-    });
+      // Mantener vista estable sin pitch/roll
+      this.camera.up.set(0, 1, 0);
+      this.camera.rotation.x = 0;
+      this.camera.rotation.z = 0;
+
+      // Avanzar hacia el objetivo con límite por frame
+      const cy = this.camera.rotation.y;
+      const ty = this._targetRotationY;
+      let dy = ((ty - cy + Math.PI) % (Math.PI * 2)) - Math.PI;
+
+      const maxStep = this._yawMaxStep ?? 0.05;
+      if (dy > maxStep) dy = maxStep;
+      if (dy < -maxStep) dy = -maxStep;
+
+      this.camera.rotation.y = cy + dy;
+    };
   }
 
   _updateSmoothLook() {
     if (!this._lookAtTarget) return;
-    if (this._lookAtTargetDesired) {
-      this._lookAtTarget.lerp(this._lookAtTargetDesired, this._targetLerp);
-    }
-    // When not locked, aim forward down the corridor (mouse-look disabled)
+
+    // When not locked, use camera's current rotation (mouse look)
     if (!this._isViewLocked) {
-      const forward = new THREE.Vector3(0, 0, -1);
-      this._lookAtTarget.copy(
-        this.camera.position
-          .clone()
-          .add(forward.multiplyScalar(this._lookRadius))
-          .setY(2)
-      );
-      this._lookAtTargetDesired.copy(this._lookAtTarget);
+      // No need to update lookAtTarget when using mouse look
+      // Camera rotation is handled directly in updateCameraRotation
+      return;
     }
+
     // If locked, force both targets to the locked point
     if (this._isViewLocked && this._lockedTarget) {
       this._lookAtTarget.copy(this._lockedTarget);
       this._lookAtTargetDesired.copy(this._lockedTarget);
     }
+
+    if (this._lookAtTargetDesired) {
+      this._lookAtTarget.lerp(this._lookAtTargetDesired, this._targetLerp);
+    }
+
     this._lookAtDummy.position.copy(this.camera.position);
     // Invert the look target: mirror target around the camera position
     const _invTarget = this.camera.position
@@ -428,37 +535,79 @@ export default class ArtGallery3D {
 
   _updateMovement(dt) {
     if (this._isViewLocked) return;
-    let dz = 0;
-    if (this._keys.w) dz -= this._moveSpeed * dt;
-    if (this._keys.s) dz += this._moveSpeed * dt;
-    if (!dz) return;
-    this.camera.position.z += dz;
-    const marginStart = this._corridorStartMargin;
-    const marginEnd = this._corridorEndMargin;
-    const corridorLength = this.corridor?.length || 80;
-    const halfLen = corridorLength / 2;
 
-    const startZ = -halfLen + marginStart; // 1ª obra (extremo Z−)
-    const endZ = halfLen - marginEnd; // última obra (extremo Z+)
+    // Velocidades locales según teclas presionadas
+    let forward = 0;
+    let strafe = 0;
 
-    // Solo el inicio usa _corridorStartViewLead
-    const minZ = Math.max(
-      -halfLen + this._corridorWallSafe,
-      startZ - this._corridorEndViewLead
+    if (this._keys.w) forward += 1;
+    if (this._keys.s) forward -= 1;
+    if (this._keys.a) strafe -= 1;
+    if (this._keys.d) strafe += 1;
+
+    if (forward === 0 && strafe === 0) return;
+
+    // Normalizar movimiento para evitar velocidad diagonal más rápida
+    const len = Math.hypot(forward, strafe);
+    if (len > 0) {
+      forward /= len;
+      strafe /= len;
+    }
+
+    const moveSpeed = this._moveSpeed * dt;
+
+    // Direcciones relativas a la vista actual (sin depender de yaw/Euler)
+    const up = new THREE.Vector3(0, 1, 0);
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(
+      this.camera.quaternion
     );
-    // Solo el final usa _corridorEndViewLead
-    const maxZ = Math.min(
-      halfLen - this._corridorWallSafe,
-      endZ + this._corridorStartViewLead
-    );
+    fwd.y = 0; // sin subir/bajar
+    if (fwd.lengthSq() > 0) fwd.normalize();
 
+    const right = new THREE.Vector3().crossVectors(fwd, up);
+    if (right.lengthSq() > 0) right.normalize();
+
+    // Desplazamiento global = (adelante/atrás) + (izq/der)
+    const delta = new THREE.Vector3()
+      .copy(fwd)
+      .multiplyScalar(forward * moveSpeed)
+      .add(right.multiplyScalar(strafe * moveSpeed));
+
+    this.camera.position.add(delta);
+    this.camera.position.y = 1.8;
+
+    // Limitar posición dentro de la sala
+    const w = this.hall?.width || 24;
+    const l = this.hall?.length || 24;
+    const safe = 0.6;
+    this.camera.position.x = THREE.MathUtils.clamp(
+      this.camera.position.x,
+      -w / 2 + safe,
+      w / 2 - safe
+    );
     this.camera.position.z = THREE.MathUtils.clamp(
       this.camera.position.z,
-      minZ,
-      maxZ
+      -l / 2 + safe,
+      l / 2 - safe
     );
-    this.camera.position.x = 0;
-    this.camera.position.y = 2;
+
+    // Detección básica de colisión contra paredes y paneles
+    const cam = this.camera.position;
+    const collided = this._colliders?.some((m) => {
+      const b = new THREE.Box3().setFromObject(m);
+      const margin = 0.3;
+      b.min.x -= margin;
+      b.min.z -= margin;
+      b.max.x += margin;
+      b.max.z += margin;
+      return (
+        cam.x > b.min.x && cam.x < b.max.x && cam.z > b.min.z && cam.z < b.max.z
+      );
+    });
+    if (collided) {
+      this.camera.position.sub(delta);
+      this.camera.position.y = 1.8;
+    }
   }
 
   _dynamicResTick(ms) {
@@ -496,43 +645,104 @@ export default class ArtGallery3D {
     directionalLight.shadow.bias = -0.0002; // reduce acne/banding
     this.scene.add(directionalLight);
     this.scene.add(directionalLight.target);
-    // Generic corridor point lights (soft fill along the hall)
-    const corridorLightPositions = [-30, -15, 0, 15, 30];
+    // Rejilla de puntos suaves para la sala
     this._points = [];
-    corridorLightPositions.forEach((z) => {
-      const point = new THREE.PointLight(0xffffff, 0.8, 30);
-      point.position.set(0, 7, z);
-      point.castShadow = false;
-      this.scene.add(point);
-      this._points.push(point);
-    });
+    const w = this.hall?.width || 24;
+    const l = this.hall?.length || 24;
+    const step = 8;
+    for (let x = -w / 2 + step; x <= w / 2 - step; x += step) {
+      for (let z = -l / 2 + step; z <= l / 2 - step; z += step) {
+        const p = new THREE.PointLight(0xffffff, 0.6, 28);
+        p.position.set(x, (this.hall?.height || 6) - 0.7, z);
+        p.castShadow = false;
+        this.scene.add(p);
+        this._points.push(p);
+      }
+    }
   }
 
   generateConcreteTexture(size = 256) {
+    // Genera una textura procedural de madera (tablones + vetas + ruido)
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#bdbdbd";
+
+    // Paleta madera (tonos cálidos)
+    const baseHue = 30 + Math.random() * 10; // dorado/anaranjado
+    const base = `hsl(${baseHue}, 45%, 55%)`;
+    ctx.fillStyle = base;
     ctx.fillRect(0, 0, size, size);
-    for (let i = 0; i < 80; i++) {
+
+    // Dibujar tablones en dirección Y (verticales en textura)
+    const plankCount = 6 + ((Math.random() * 3) | 0);
+    const plankW = size / plankCount;
+    for (let i = 0; i < plankCount; i++) {
+      const x0 = i * plankW;
+      // sombreado sutil por tablón
+      const grad = ctx.createLinearGradient(x0, 0, x0 + plankW, 0);
+      grad.addColorStop(0, `hsla(${baseHue}, 45%, 46%, 0.25)`);
+      grad.addColorStop(0.5, `hsla(${baseHue}, 45%, 58%, 0.15)`);
+      grad.addColorStop(1, `hsla(${baseHue}, 45%, 46%, 0.25)`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(x0, 0, plankW, size);
+
+      // líneas de borde del tablón
+      ctx.strokeStyle = `hsla(${baseHue}, 35%, 30%, 0.35)`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(Math.round(x0), 0);
+      ctx.lineTo(Math.round(x0), size);
+      ctx.stroke();
+    }
+
+    // Vetas curvas: múltiples trazos semitransparentes con ruido
+    const grainLayers = 28;
+    for (let g = 0; g < grainLayers; g++) {
+      const yStart = Math.random() * size;
+      const amp = 2 + Math.random() * 6; // amplitud
+      const freq = 0.015 + Math.random() * 0.02; // frecuencia
+      const tilt = (Math.random() - 0.5) * 0.2; // leve inclinación
+      ctx.strokeStyle = `hsla(${baseHue}, 35%, ${
+        (38 + Math.random() * 8) | 0
+      }%, ${0.06 + Math.random() * 0.06})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = 0; x <= size; x++) {
+        const y =
+          yStart + Math.sin(x * freq + g * 0.35) * amp + x * tilt * 0.02;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // "Nudos" de madera: óvalos suaves aleatorios
+    const knots = 6 + ((Math.random() * 6) | 0);
+    for (let k = 0; k < knots; k++) {
       const x = Math.random() * size;
       const y = Math.random() * size;
-      const r = 10 + Math.random() * 40;
-      const a = 0.04 + Math.random() * 0.06;
-      ctx.fillStyle = `rgba(120,120,120,${a})`;
+      const rx = 5 + Math.random() * 12;
+      const ry = 3 + Math.random() * 8;
+      const grd = ctx.createRadialGradient(x, y, 1, x, y, Math.max(rx, ry));
+      grd.addColorStop(0, `hsla(${baseHue}, 40%, 28%, 0.25)`);
+      grd.addColorStop(1, `hsla(${baseHue}, 40%, 28%, 0)`);
+      ctx.fillStyle = grd;
       ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.ellipse(x, y, rx, ry, Math.random() * Math.PI, 0, Math.PI * 2);
       ctx.fill();
     }
-    for (let i = 0; i < size * size * 0.02; i++) {
+
+    // Ruido fino para romper la uniformidad
+    const density = size * size * 0.02;
+    for (let i = 0; i < density; i++) {
       const x = (Math.random() * size) | 0;
       const y = (Math.random() * size) | 0;
-      const c = (180 + Math.random() * 60) | 0;
-      const a = 0.05 + Math.random() * 0.05;
-      ctx.fillStyle = `rgba(${c},${c},${c},${a})`;
+      const a = 0.03 + Math.random() * 0.03;
+      ctx.fillStyle = `rgba(0,0,0,${a})`;
       ctx.fillRect(x, y, 1, 1);
     }
+
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
@@ -605,49 +815,67 @@ export default class ArtGallery3D {
   }
 
   createRooms() {
-    this.rooms.galeria = this.createCorridor();
+    this.rooms.galeria = this.createHall();
   }
 
-  createCorridor() {
-    const corridorGroup = new THREE.Group();
-    const corridorLength = 80;
-    const corridorWidth = 6;
-    const wallHeight = 8;
-    this.corridor = {
-      length: corridorLength,
-      width: corridorWidth,
-      wallHeight,
-    };
+  // Nueva sala amplia con paneles interiores
+  createHall() {
+    const group = new THREE.Group();
+    const width = 34;
+    const length = 34;
+    const height = 6;
+    const wallThickness = 0.25;
+    this.hall = { width, length, height, wallThickness };
+    this._colliders = [];
+    this._supports = [];
 
-    // Piso concreto (modelo)
-    // Swap dimensions so the floor aligns with corridor length (Z) and width (X)
-    const floorGeometry = new THREE.PlaneGeometry(
-      corridorWidth,
-      corridorLength
-    );
-    const concreteMap = this.generateConcreteTexture(512);
-    concreteMap.repeat.set(corridorWidth / 6, corridorLength / 20);
+    // Piso
+    const floorGeometry = new THREE.PlaneGeometry(width, length);
     const floorMaterial = new THREE.MeshStandardMaterial({
-      color: 0xbdbdbd,
-      map: concreteMap,
+      color: 0xffffff,
       roughness: 0.95,
       metalness: 0.0,
     });
+
+    // Cargar textura de piso
+    const floorTextureLoader = new THREE.TextureLoader();
+    floorTextureLoader.load(
+      "/galeria-arte-3d/assets/textures/piso.jpg",
+      (texture) => {
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(width / 4, length / 4); // Ajustar repetición según el tamaño de la sala
+        texture.anisotropy = Math.min(
+          4,
+          this.renderer.capabilities.getMaxAnisotropy()
+        );
+        texture.colorSpace = THREE.SRGBColorSpace;
+        floorMaterial.map = texture;
+        floorMaterial.needsUpdate = true;
+      },
+      undefined,
+      (error) => {
+        console.warn(
+          "No se pudo cargar la textura del piso, usando textura generada:",
+          error
+        );
+        // Fallback a textura generada si falla la carga
+        const concreteMap = this.generateConcreteTexture(512);
+        concreteMap.repeat.set(width / 6, length / 20);
+        floorMaterial.map = concreteMap;
+        floorMaterial.needsUpdate = true;
+      }
+    );
     const floor = new THREE.Mesh(floorGeometry, floorMaterial);
     floor.rotation.x = -Math.PI / 2;
-    // tiny offset to avoid z-fighting with shadow maps
     floor.position.y = -0.001;
     floor.receiveShadow = true;
-    corridorGroup.add(floor);
+    group.add(floor);
 
     // Techo
-    // Swap dimensions for ceiling to match corridor orientation
-    const ceilingGeometry = new THREE.PlaneGeometry(
-      corridorWidth,
-      corridorLength
-    );
+    const ceilingGeometry = new THREE.PlaneGeometry(width, length);
     const ceilingMap = this.generateWhiteNoiseTexture(256, "#ffffff", 0.03);
-    ceilingMap.repeat.set(corridorWidth / 6, corridorLength / 20);
+    ceilingMap.repeat.set(width / 6, length / 20);
     const ceilingMaterial = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: ceilingMap,
@@ -656,175 +884,160 @@ export default class ArtGallery3D {
     });
     const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
     ceiling.rotation.x = Math.PI / 2;
-    ceiling.position.set(0, wallHeight + 0.001, 0);
-    corridorGroup.add(ceiling);
+    ceiling.position.set(0, height + 0.001, 0);
+    group.add(ceiling);
 
-    // Paredes
-    const wallThickness = 0.2;
+    // Paredes perimetrales
     const sideWallGeometry = new THREE.BoxGeometry(
       wallThickness,
-      wallHeight,
-      corridorLength
+      height,
+      length
     );
     const wallMap = this.generateWhiteNoiseTexture(256, "#ffffff", 0.03);
-    wallMap.repeat.set(corridorLength / 20, wallHeight / 4);
+    wallMap.repeat.set(length / 20, height / 4);
     const wallMaterial = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       map: wallMap,
       roughness: 0.85,
       metalness: 0.0,
     });
-    // Mapa/material para paredes de cierre (frontal/trasera) con repetición acorde a su anchura
-    const endWallMap = this.generateWhiteNoiseTexture(256, "#ffffff", 0.03);
-    endWallMap.repeat.set(corridorWidth / 6, wallHeight / 4);
-    const endWallMaterial = new THREE.MeshStandardMaterial({
-      color: 0xadadad,
-      map: endWallMap,
+    const leftWall = new THREE.Mesh(sideWallGeometry, wallMaterial);
+    leftWall.position.set(-width / 2, height / 2, 0);
+    leftWall.castShadow = true;
+    leftWall.receiveShadow = true;
+    group.add(leftWall);
+    const rightWall = new THREE.Mesh(sideWallGeometry, wallMaterial);
+    rightWall.position.set(width / 2, height / 2, 0);
+    rightWall.castShadow = true;
+    rightWall.receiveShadow = true;
+    group.add(rightWall);
+
+    // Paredes norte/sur (sin hueco: sur continuo)
+    const endWallGeometry = new THREE.BoxGeometry(width, height, wallThickness);
+    const northWall = new THREE.Mesh(endWallGeometry, wallMaterial);
+    northWall.position.set(0, height / 2, -length / 2);
+    northWall.castShadow = true;
+    northWall.receiveShadow = true;
+    group.add(northWall);
+
+    const southWall = new THREE.Mesh(endWallGeometry, wallMaterial);
+    southWall.position.set(0, height / 2, length / 2);
+    southWall.castShadow = true;
+    southWall.receiveShadow = true;
+    group.add(southWall);
+
+    // Paneles interiores
+    const panelMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      map: this.generateWhiteNoiseTexture(256, "#ffffff", 0.02),
       roughness: 0.85,
       metalness: 0.0,
     });
-    const leftWall = new THREE.Mesh(sideWallGeometry, wallMaterial);
-    leftWall.position.set(-corridorWidth / 2, wallHeight / 2, 0);
-    leftWall.castShadow = true;
-    leftWall.receiveShadow = true;
-    corridorGroup.add(leftWall);
-    const rightWall = new THREE.Mesh(sideWallGeometry, wallMaterial);
-    rightWall.position.set(corridorWidth / 2, wallHeight / 2, 0);
-    rightWall.castShadow = true;
-    rightWall.receiveShadow = true;
-    corridorGroup.add(rightWall);
+    const mkPanel = (sx, sz, len, alongZ = true) => {
+      const geo = alongZ
+        ? new THREE.BoxGeometry(0.2, height - 0.5, len)
+        : new THREE.BoxGeometry(len, height - 0.5, 0.2);
+      const m = new THREE.Mesh(geo, panelMat);
+      m.position.set(sx, (height - 0.5) / 2, sz);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      group.add(m);
+      this._colliders.push(m);
+      // Registrar superficies para colocación de obras (ambos lados)
+      if (alongZ) {
+        const half = len / 2;
+        this._supports.push({
+          type: "panel",
+          side: "left",
+          x: sx - 0.11,
+          z0: sz - half,
+          z1: sz + half,
+          rotY: Math.PI / 2,
+        });
+        this._supports.push({
+          type: "panel",
+          side: "right",
+          x: sx + 0.11,
+          z0: sz - half,
+          z1: sz + half,
+          rotY: -Math.PI / 2,
+        });
+      } else {
+        const half = len / 2;
+        this._supports.push({
+          type: "panel",
+          side: "front",
+          z: sz - 0.11,
+          x0: sx - half,
+          x1: sx + half,
+          rotY: 0,
+        });
+        this._supports.push({
+          type: "panel",
+          side: "back",
+          z: sz + 0.11,
+          x0: sx - half,
+          x1: sx + half,
+          rotY: Math.PI,
+        });
+      }
+      return m;
+    };
 
-    // Paredes de cierre (frontal y trasera) para cerrar el pasillo
-    const halfLen = corridorLength / 2;
-    const endWallGeometry = new THREE.BoxGeometry(
-      corridorWidth,
-      wallHeight,
-      wallThickness
-    );
-    const frontWall = new THREE.Mesh(endWallGeometry, endWallMaterial);
-    frontWall.position.set(0, wallHeight / 2, -halfLen); // extremo Z−
-    frontWall.castShadow = true;
-    frontWall.receiveShadow = true;
-    corridorGroup.add(frontWall);
-    const backWall = new THREE.Mesh(endWallGeometry, endWallMaterial);
-    backWall.position.set(0, wallHeight / 2, halfLen); // extremo Z+
-    backWall.castShadow = true;
-    backWall.receiveShadow = true;
-    corridorGroup.add(backWall);
-    // Store wall references for collision checks
-    this.corridor.frontWall = frontWall;
-    this.corridor.backWall = backWall;
-    this.corridor.leftWall = leftWall;
-    this.corridor.rightWall = rightWall;
+    // Dos paneles largos centrados y paralelos
+    mkPanel(-6, 0, 16, true);
+    mkPanel(6, 0, 16, true);
 
-    // Focos suaves para las paredes de cierre, para igualar sombras/luces con las laterales
-    const endSpotIntensity = 0.55; // algo menos que los focos de obra
-    const endSpotAngle = Math.PI / 7;
-    const endSpotPenumbra = 0.45;
-
-    // Pared frontal (Z-)
-    const frontSpot = new THREE.SpotLight(
-      0xffffff,
-      endSpotIntensity,
-      16,
-      endSpotAngle,
-      endSpotPenumbra,
-      1.5
-    );
-    frontSpot.position.set(0, wallHeight - 0.5, -halfLen + 0.6);
-    frontSpot.target.position.set(0, wallHeight * 0.35 + 1.2, -halfLen + 0.01);
-    frontSpot.castShadow = true;
-    frontSpot.shadow.mapSize.set(1024, 1024);
-    frontSpot.shadow.bias = -0.0002;
-    corridorGroup.add(frontSpot);
-    corridorGroup.add(frontSpot.target);
-
-    // Pared trasera (Z+)
-    const backSpot = new THREE.SpotLight(
-      0xffffff,
-      endSpotIntensity,
-      16,
-      endSpotAngle,
-      endSpotPenumbra,
-      1.5
-    );
-    backSpot.position.set(0, wallHeight - 0.5, halfLen - 0.6);
-    backSpot.target.position.set(0, wallHeight * 0.35 + 1.2, halfLen - 0.01);
-    backSpot.castShadow = true;
-    backSpot.shadow.mapSize.set(1024, 1024);
-    backSpot.shadow.bias = -0.0002;
-    corridorGroup.add(backSpot);
-    corridorGroup.add(backSpot.target);
-
-    // Riel de iluminación
-    this.createLightTracks(
-      corridorGroup,
-      corridorLength,
-      corridorWidth,
-      wallHeight
+    // Añadir paredes como colisionadores
+    [leftWall, rightWall, northWall, southWall].forEach((w) =>
+      this._colliders.push(w)
     );
 
-    this.scene.add(corridorGroup);
-    return corridorGroup;
+    // Registrar soportes perimetrales (excluyendo hueco sur)
+    const margin = 1.0;
+    // Oeste (x negativo) mirando +X
+    this._supports.push({
+      type: "wall",
+      name: "west",
+      x: -width / 2 + 0.11,
+      z0: -length / 2 + margin,
+      z1: length / 2 - margin,
+      rotY: Math.PI / 2,
+    });
+    // Este (x positivo) mirando -X
+    this._supports.push({
+      type: "wall",
+      name: "east",
+      x: width / 2 - 0.11,
+      z0: -length / 2 + margin,
+      z1: length / 2 - margin,
+      rotY: -Math.PI / 2,
+    });
+    // Norte (z negativo) mirando +Z
+    this._supports.push({
+      type: "wall",
+      name: "north",
+      z: -length / 2 + 0.11,
+      x0: -width / 2 + margin,
+      x1: width / 2 - margin,
+      rotY: 0,
+    });
+    // Sur (z positivo) continuo (sin hueco)
+    this._supports.push({
+      type: "wall",
+      name: "south",
+      z: length / 2 - 0.11,
+      x0: -width / 2 + margin,
+      x1: width / 2 - margin,
+      rotY: Math.PI,
+    });
+
+    this.scene.add(group);
+    return group;
   }
 
   createLightTracks(parent, corridorLength, corridorWidth, wallHeight) {
-    const trackLength = corridorLength - 6;
-    // Long axis along Z to align with corridor direction
-    const trackGeometry = new THREE.BoxGeometry(0.15, 0.05, trackLength);
-    const trackMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2b2b2b,
-      roughness: 0.8,
-    });
-    const track = new THREE.Mesh(trackGeometry, trackMaterial);
-    track.position.set(0, wallHeight - 0.6, 0);
-    parent.add(track);
-
-    // Evenly spaced ceiling spotlights aiming to each wall
-    const numSpots = Math.max(6, Math.floor(corridorLength / 8));
-    const startZ = -trackLength / 2;
-    const stepZ = trackLength / (numSpots - 1);
-    this._spots = [];
-    for (let i = 0; i < numSpots; i++) {
-      const z = startZ + i * stepZ;
-      const y = wallHeight - 0.5;
-
-      // Left wall target
-      const spotL = new THREE.SpotLight(
-        0xffffff,
-        0.65,
-        22,
-        Math.PI / 8,
-        0.4,
-        1.5
-      );
-      spotL.position.set(0, y, z);
-      spotL.target.position.set(-corridorWidth / 2 - 0.01 + 0.21, 2, z); // +0.2 de separación de pared
-      spotL.castShadow = true;
-      spotL.shadow.mapSize.set(1024, 1024);
-      spotL.shadow.bias = -0.0002;
-      this.scene.add(spotL);
-      this.scene.add(spotL.target);
-      this._spots.push(spotL);
-
-      // Right wall target
-      const spotR = new THREE.SpotLight(
-        0xffffff,
-        0.65,
-        22,
-        Math.PI / 8,
-        0.4,
-        1.5
-      );
-      spotR.position.set(0, y, z);
-      spotR.target.position.set(corridorWidth / 2 + 0.01 - 0.21, 2, z); // -0.2 de separación de pared
-      spotR.castShadow = true;
-      spotR.shadow.mapSize.set(1024, 1024);
-      spotR.shadow.bias = -0.0002;
-      this.scene.add(spotR);
-      this.scene.add(spotR.target);
-      this._spots.push(spotR);
-    }
+    // No riel lineal; en sala usaremos rejilla de focos desde setupLights/refresh
   }
 
   rebuildArtworkSpots() {
@@ -835,33 +1048,21 @@ export default class ArtGallery3D {
     }
     this._spots = [];
 
-    const corridorLength = this.corridor?.length || 80;
-    const corridorWidth = this.corridor?.width || 6;
-    const wallHeight = this.corridor?.wallHeight || 8;
+    const wallHeight = this.hall?.height || this.corridor?.wallHeight || 6;
 
     // Create one spotlight per artwork, positioned directly above its wall, aimed at the artwork center
     for (const a of this.artworks) {
       if (!a || !a.mesh) continue;
-      const z = a.mesh.position.z;
-      const y = wallHeight - 0.3; // near ceiling
-      // Place the light over the same wall as the artwork, slightly off the wall
-      const overX =
-        a.side === "left"
-          ? -corridorWidth / 2 + 0.35
-          : corridorWidth / 2 - 0.35;
-
-      // Strong, clearly visible spotlight with reliable shadows
-      const spot = new THREE.SpotLight(0xfff1e0, 2.4, 18, Math.PI / 6, 0.5, 2);
-      spot.position.set(overX, y, z);
+      const center = new THREE.Vector3();
+      new THREE.Box3().setFromObject(a.mesh).getCenter(center);
+      const y = wallHeight - 0.3;
+      const spot = new THREE.SpotLight(0xfff1e0, 2.2, 18, Math.PI / 6, 0.5, 2);
+      spot.position.set(center.x, y, center.z);
       // Light affects both default (0) and artworks (1) layers
       spot.layers.enable(1);
 
-      // Target: artwork center, nudged off the wall to avoid grazing
-      const artCenter = new THREE.Vector3();
-      new THREE.Box3().setFromObject(a.mesh).getCenter(artCenter);
-      const targetX =
-        a.side === "left" ? artCenter.x + 0.12 : artCenter.x - 0.12;
-      spot.target.position.set(targetX, artCenter.y, artCenter.z);
+      // Target: artwork center
+      spot.target.position.set(center.x, center.y, center.z);
 
       spot.castShadow = true;
       spot.shadow.mapSize.set(2048, 2048);
@@ -978,34 +1179,167 @@ export default class ArtGallery3D {
         throw new Error("No se pudo cargar artworks.json");
       }
 
-      // Precompute corridor/spacing variables
+      // --- Build supportsMap structure for layout ---
+      const supportsMap = {};
+      // Helpers de muestreo uniforme
+      const sampleAlongZ = (x, z0, z1, rotY, count, pad = 0.6, s) => {
+        const res = [];
+        const span = Math.abs(z1 - z0) - pad * 2;
+        if (span > 0) {
+          const dir = z1 > z0 ? 1 : -1;
+          if (count <= 1) {
+            res.push({ x, z: z0 + dir * (Math.abs(span) / 2 + pad), rotY });
+          } else {
+            for (let i = 0; i < count; i++) {
+              const t = count === 1 ? 0.5 : i / (count - 1);
+              const z = z0 + dir * pad + dir * (t * span);
+              res.push({ x, z, rotY });
+            }
+          }
+        }
+        // Register in supportsMap (even if res is empty to ensure group exists)
+        this._registerSupportSample(supportsMap, s, res, "z", z0, z1);
+        return res;
+      };
+      const sampleAlongX = (z, x0, x1, rotY, count, pad = 0.6, s) => {
+        const res = [];
+        const span = Math.abs(x1 - x0) - pad * 2;
+        if (span > 0) {
+          const dir = x1 > x0 ? 1 : -1;
+          if (count <= 1) {
+            res.push({ x: x0 + dir * (Math.abs(span) / 2 + pad), z, rotY });
+          } else {
+            for (let i = 0; i < count; i++) {
+              const t = count === 1 ? 0.5 : i / (count - 1);
+              const x = x0 + dir * pad + dir * (t * span);
+              res.push({ x, z, rotY });
+            }
+          }
+        }
+        // Register in supportsMap
+        this._registerSupportSample(supportsMap, s, res, "x", x0, x1);
+        return res;
+      };
+
+      // === Sample anchors for every support (walls + both sides of panels) ===
+      const TARGET_SPACING = 10.0; // meters between artworks along a support
+      const PAD = 0.6; // breathing room near ends
+      for (const s of this._supports) {
+        if (s.z0 != null && s.z1 != null && s.x != null) {
+          const span = Math.max(0, Math.abs(s.z1 - s.z0) - PAD * 2);
+          const count = Math.max(1, Math.round(span / TARGET_SPACING));
+          sampleAlongZ(s.x, s.z0, s.z1, s.rotY, count, PAD, s);
+        } else if (s.x0 != null && s.x1 != null && s.z != null) {
+          const span = Math.max(0, Math.abs(s.x1 - s.x0) - PAD * 2);
+          const count = Math.max(1, Math.round(span / TARGET_SPACING));
+          sampleAlongX(s.z, s.x0, s.x1, s.rotY, count, PAD, s);
+        }
+      }
+
+      // === Distribución equitativa entre TODAS las superficies (paredes perimetrales + cada lado de paneles) ===
+      this._supportsMap = supportsMap; // Save for fitting / cell sizing
+
+      // === Center anchors within each support (CSS justify-content: space-around style) ===
+      for (const key in supportsMap) {
+        const group = supportsMap[key];
+        const list = group.list;
+        if (!list || list.length < 2) continue;
+
+        // Determine axis range
+        const min = Math.min(group.start, group.end);
+        const max = Math.max(group.start, group.end);
+        const totalSpan = Math.abs(max - min);
+        const count = list.length;
+
+        // Calculate spacing with equal gaps and centered start offset
+        const space = totalSpan / (count + 1);
+
+        for (let i = 0; i < count; i++) {
+          const posCoord = min + space * (i + 1);
+          if (group.axis === "z") {
+            list[i].z =
+              group.start < group.end ? posCoord : max - space * (i + 1);
+          } else if (group.axis === "x") {
+            list[i].x =
+              group.start < group.end ? posCoord : max - space * (i + 1);
+          }
+        }
+      }
+
+      // Construir buckets para *cada* soporte (pared o lado de panel) con sus anclajes muestreados.
+      // El muestreo ya se realizó con sampleAlongZ/sampleAlongX al llenar supportsMap.
+      // Mantener orden estable: primero paredes perimetrales (west,east,north,south), luego paneles por clave.
+      const allGroups = [];
+      const orderWalls = ["west", "east", "north", "south"];
+      for (const wname of orderWalls) {
+        const g = Object.values(supportsMap).find(
+          (gg) => gg.key === `wall:${wname}`
+        );
+        if (g) allGroups.push({ name: g.key, list: g.list.slice() });
+      }
+      // Añadir el resto (paneles y cualquier otro) en orden alfabético de clave para estabilidad.
+      const otherGroups = Object.values(supportsMap)
+        .filter(
+          (g) =>
+            !g.key.startsWith("wall:") ||
+            !orderWalls.includes(g.key.split(":")[1])
+        )
+        .sort((a, b) => a.key.localeCompare(b.key));
+      for (const g of otherGroups) {
+        allGroups.push({ name: g.key, list: g.list.slice() });
+      }
+
+      // Helper round‑robin que reparte equitativamente respetando la capacidad de cada bucket.
+      const roundRobinTake = (buckets, count) => {
+        const out = [];
+        // Copia de trabajo mutable
+        const work = buckets.map((b) => ({
+          name: b.name,
+          list: b.list.slice(),
+        }));
+        let i = 0;
+        while (out.length < count) {
+          const alive = work.filter((b) => b.list.length > 0);
+          if (!alive.length) break;
+          const b = alive[i % alive.length];
+          const a = b.list.shift();
+          if (a) out.push(a);
+          i++;
+        }
+        return out;
+      };
+
+      const totalArtworks = artworksData.length;
+      // Repartir sobre todas las superficies por turnos.
+      let anchors = roundRobinTake(allGroups, totalArtworks);
+
+      // Si por capacidad no alcanza, hacer un segundo pase sobre cualquier soporte que aún tenga huecos.
+      if (anchors.length < totalArtworks) {
+        const anyBuckets = Object.values(supportsMap).map((g) => ({
+          name: g.key,
+          list: g.list.slice(),
+        }));
+        const remaining = totalArtworks - anchors.length;
+        anchors = anchors.concat(roundRobinTake(anyBuckets, remaining));
+      }
+
+      // Usar la lista final de anclajes en el mismo orden que se generó arriba
       const N = artworksData.length;
-      const corridorWidth = this.corridor?.width || 6;
-      const corridorLength = this.corridor?.length || 80;
-      const halfLen = corridorLength / 2;
-      const startMargin = this._corridorStartMargin;
-      const endMargin = this._corridorEndMargin; // margen del extremo final
-      const frameDepth = 0.1; // matches frame BoxGeometry depth
-      const gap = 0.12; // small gap from wall to avoid z-fighting
-      const xInner = corridorWidth / 2 - (frameDepth + gap);
-      const startZ = -halfLen + startMargin;
-      const usableLen = corridorLength - startMargin - endMargin;
-      const spacingZ = N > 1 ? usableLen / (N - 1) : 0; // distribuir en el tramo util
-
-      artworksData.forEach((data, i) => {
-        const sideRight = i % 2 === 0; // alternate sides
-        const xOffset = sideRight ? xInner : -xInner;
-        const z = startZ + i * spacingZ; // uniformly across corridor
-        const y = 2; // eye-level center
-
+      for (let i = 0; i < N; i++) {
+        const data = artworksData[i];
+        const a = anchors[i % anchors.length] || { x: 0, z: 0, rotY: 0 };
+        const y = 2;
         const artworkData = {
           ...data,
           image: this._resolveArtworkImage(data.image),
-          position: [xOffset, y, z],
-          side: sideRight ? "right" : "left",
+          position: [a.x, y, a.z],
+          rotationY: a.rotY,
+          _supportKey: a.key,
+          _anchor: a,
+          _normal: a.normal,
         };
         this.createArtwork(artworkData, i);
-      });
+      }
     } catch (err) {
       console.error("Error cargando artworks.json:", err);
     }
@@ -1061,15 +1395,18 @@ export default class ArtGallery3D {
           texture.image?.naturalWidth || texture.image?.width || 1024,
           texture.image?.naturalHeight || texture.image?.height || 1024
         );
-        this._applyDisplaySize(frame, canvas, w, h);
         data.size = [w, h];
+        // Fit to cell if needed
+        this._fitArtworkToCell(data);
+        // Apply (possibly rescaled) size
+        this._applyDisplaySize(frame, canvas, data.size[0], data.size[1]);
         // Place the artwork so the bottom sits at a constant margin above the floor
         const [x0, , z0] = data.position;
-        const newY = this._artBottomMargin + h * 0.5;
+        const newY = this._artBottomMargin + data.size[1] * 0.5;
         data.position = [x0, newY, z0];
         artworkGroup.position.y = newY;
         // Local fill light so the artwork reads as fully illuminated
-        this._attachArtworkFillLight(artworkGroup, w, h);
+        this._attachArtworkFillLight(artworkGroup, data.size[0], data.size[1]);
       });
       // (Optional safety) Ensure canvases do NOT receive shadow maps from frames/walls
       canvas.receiveShadow = false; // keep image clean from shadow maps
@@ -1102,15 +1439,18 @@ export default class ArtGallery3D {
       // Double current size (overall 3.0x from original base), with generous caps
       w0 = Math.min(10, w0 * 3.0);
       h0 = Math.min(10, h0 * 3.0);
-      this._applyDisplaySize(frame, canvas, w0, h0);
       data.size = [w0, h0];
+      // Fit to cell if needed
+      this._fitArtworkToCell(data);
+      // Apply (possibly rescaled) size
+      this._applyDisplaySize(frame, canvas, data.size[0], data.size[1]);
       // Place the artwork so the bottom sits at a constant margin above the floor
       const [x0, , z0] = data.position;
-      const newY = this._artBottomMargin + h0 * 0.5;
+      const newY = this._artBottomMargin + data.size[1] * 0.5;
       data.position = [x0, newY, z0];
       artworkGroup.position.y = newY;
       // Local fill light so the artwork reads as fully illuminated
-      this._attachArtworkFillLight(artworkGroup, w0, h0);
+      this._attachArtworkFillLight(artworkGroup, data.size[0], data.size[1]);
     }
 
     data.mesh = artworkGroup;
@@ -1118,8 +1458,17 @@ export default class ArtGallery3D {
     this.artworks.push(data);
 
     const [x, y, z] = data.position;
-    artworkGroup.position.set(x, y, z);
-    if (data.side === "left") {
+    // Place the group with a tiny push along the wall/panel normal to avoid z-fighting
+    let px = x,
+      pz = z;
+    if (data._normal) {
+      px += data._normal.x * 0.012;
+      pz += data._normal.z * 0.012;
+    }
+    artworkGroup.position.set(px, y, pz);
+    if (typeof data.rotationY === "number") {
+      artworkGroup.rotation.y = data.rotationY;
+    } else if (data.side === "left") {
       artworkGroup.rotation.y = Math.PI / 2;
     } else if (data.side === "right") {
       artworkGroup.rotation.y = -Math.PI / 2;
@@ -1331,6 +1680,8 @@ export default class ArtGallery3D {
           .setY(2);
         this._lookAtTarget.copy(look);
         this._lookAtTargetDesired.copy(look);
+        // Sincronizar yaw libre con la orientación actual
+        this._targetRotationY = this.camera.rotation.y;
       },
     });
   }
@@ -1398,7 +1749,12 @@ export default class ArtGallery3D {
 
   hideLoadingScreen() {
     const loadingScreen = document.getElementById("loading-screen");
-    if (!loadingScreen) return;
+    if (!loadingScreen) {
+      // No hay overlay clásico: marcar como no-cargando igualmente
+      this.isLoading = false;
+      document.getElementById("app")?.classList.add("fade-in");
+      return;
+    }
     loadingScreen.style.opacity = "0";
     setTimeout(() => {
       loadingScreen.style.display = "none";
@@ -1424,9 +1780,7 @@ export default class ArtGallery3D {
     this._dynamicResTick(dt * 1000);
     this._updateCulling();
     this._updateLOD();
-    if (!this.isLoading) {
-      this.updateCameraRotation();
-    }
+    this.updateCameraRotation();
     this._updateSmoothLook();
     this.renderer.render(this.scene, this.camera);
   }
