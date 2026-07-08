@@ -1322,6 +1322,34 @@ export default class ArtGallery3D {
     }, 500);
   }
 
+  dispose() {
+    if (this._rafId) cancelAnimationFrame(this._rafId);
+    this.camControls?.dispose();
+
+    // Dedupe geometrías/materiales (recursos compartidos se referencian muchas veces)
+    const geometries = new Set();
+    const materials = new Set();
+    this.scene?.traverse((obj) => {
+      if (obj.geometry) geometries.add(obj.geometry);
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      mats.forEach((m) => m && materials.add(m));
+    });
+    if (this._sharedFrameGeo) geometries.add(this._sharedFrameGeo);
+    if (this._sharedCanvasGeo) geometries.add(this._sharedCanvasGeo);
+    if (this._sharedFrameMat) materials.add(this._sharedFrameMat);
+
+    materials.forEach((m) => {
+      if (m.map) m.map.dispose?.();
+      if (m.emissiveMap) m.emissiveMap.dispose?.();
+      m.dispose?.();
+    });
+    geometries.forEach((g) => g.dispose?.());
+
+    this.renderer?.dispose?.();
+    const el = this.renderer?.domElement;
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+
   animate() {
     this._rafId = requestAnimationFrame(() => this.animate());
     if (this._fpsCap && this._fpsCap > 0) {

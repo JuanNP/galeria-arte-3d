@@ -52,12 +52,10 @@ export default function App() {
     });
     return () => {
       isMounted = false;
-      const container = document.getElementById("canvas-container");
-      if (container && container.firstChild) {
-        try {
-          container.removeChild(container.firstChild);
-        } catch {}
-      }
+      try {
+        galleryRef.current?.dispose?.();
+      } catch {}
+      galleryRef.current = null;
     };
   }, []);
 
