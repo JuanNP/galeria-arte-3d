@@ -880,7 +880,7 @@ export default class ArtGallery3D {
     try {
       const base = (import.meta.env && import.meta.env.BASE_URL) || "/";
       const url = base + "artworks.json";
-      const res = await fetch(url);
+      let res = await fetch(url);
       res.status === 404 && (res = await fetch(base + "assets/artworks.json"));
       const artworksData = await res.json();
 
