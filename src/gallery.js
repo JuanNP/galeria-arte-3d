@@ -416,13 +416,15 @@ export default class ArtGallery3D {
   // Foco museo dedicado a una obra: colgado del grupo de la obra (en espacio
   // local), por encima y por delante del lienzo, apuntando a su centro.
   // Ilumina tanto la obra (capa 1) como la pared detrás (capa 0).
-  _attachArtworkSpot(group, h) {
-    const spot = new THREE.SpotLight(0xfff2e0, 1.6, 18, Math.PI / 5, 0.55, 1.1);
+  _attachArtworkSpot(group) {
+    const spot = new THREE.SpotLight(0xfff2e0, 1.6, 20, Math.PI / 5, 0.55, 1.1);
     spot.castShadow = false; // sin sombras: mantiene el coste bajo y la pared limpia
-    // Justo por encima del borde superior de la obra y algo por delante (lado
-    // sala = +Z local). Relativo a la altura de la obra para quedar sobre ella
-    // sin atravesar el techo.
-    spot.position.set(0, h * 0.5 + 1.4, 1.6);
+    // Todos los focos a la MISMA altura, pegados al techo. Como el foco cuelga
+    // del grupo (cuyo origen está en el centro de la obra), convertimos la
+    // altura absoluta deseada a coordenada local restando la altura del grupo.
+    const ceilingY = (this.hall?.height || 8) - 0.35;
+    const localY = ceilingY - group.position.y;
+    spot.position.set(0, localY, 1.6); // techo, algo por delante (lado sala = +Z local)
     const target = new THREE.Object3D();
     target.position.set(0, 0, 0.05); // centro del lienzo
     group.add(target);
@@ -1067,7 +1069,7 @@ export default class ArtGallery3D {
         data.position = [x0, newY, z0];
         artworkGroup.position.y = newY;
         // Foco dedicado a la obra (sala oscura)
-        this._attachArtworkSpot(artworkGroup, data.size[1]);
+        this._attachArtworkSpot(artworkGroup);
       });
       // (Optional safety) Ensure canvases do NOT receive shadow maps from frames/walls
       canvas.receiveShadow = false; // keep image clean from shadow maps
@@ -1111,7 +1113,7 @@ export default class ArtGallery3D {
       data.position = [x0, newY, z0];
       artworkGroup.position.y = newY;
       // Foco dedicado a la obra (sala oscura)
-      this._attachArtworkSpot(artworkGroup, data.size[1]);
+      this._attachArtworkSpot(artworkGroup);
     }
 
     data.mesh = artworkGroup;
