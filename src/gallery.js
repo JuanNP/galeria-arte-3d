@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { gsap } from "gsap";
 import CameraController from "./CameraController.js";
+import { computeDownscaleSize } from "./textureUtils.js";
 
 export default class ArtGallery3D {
   constructor(options = {}) {
@@ -51,6 +52,15 @@ export default class ArtGallery3D {
     this.camera.layers.enable(1);
     this._clock = new THREE.Clock();
     this._colliders = [];
+    // Recursos compartidos por todas las obras (evita duplicar geometrías/materiales)
+    this._sharedFrameGeo = new THREE.BoxGeometry(1, 1, 0.1);
+    this._sharedCanvasGeo = new THREE.PlaneGeometry(1, 1);
+    this._sharedFrameMat = new THREE.MeshStandardMaterial({
+      color: 0x111111,
+      roughness: 0.5,
+      metalness: 0.05,
+    });
+    this._maxTextureSize = 2048;
     // Auto-iluminación sutil / material unlit de las obras
     this._artEmissiveBoost = 0.45;
     this._artUnlit = true;
@@ -235,18 +245,31 @@ export default class ArtGallery3D {
   _loadArtworkTexture(url, onLoad, onError) {
     const loader = new THREE.TextureLoader();
     const resolvedUrl = this._resolveAssetUrl(url);
-
+    const maxSize = this._maxTextureSize || 2048;
     loader.load(
       resolvedUrl,
       (tex) => {
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.generateMipmaps = true;
-        tex.anisotropy = Math.min(
-          4,
-          this.renderer.capabilities.getMaxAnisotropy()
-        );
-        tex.needsUpdate = true;
-        onLoad?.(tex);
+        const img = tex.image;
+        const iw = img?.naturalWidth || img?.width || 0;
+        const ih = img?.naturalHeight || img?.height || 0;
+        let finalTex = tex;
+        if (iw && ih && (iw > maxSize || ih > maxSize)) {
+          const { width, height } = computeDownscaleSize(iw, ih, maxSize);
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, width, height);
+          tex.dispose(); // liberar la textura full-res original
+          finalTex = new THREE.CanvasTexture(canvas);
+        }
+        finalTex.colorSpace = THREE.SRGBColorSpace;
+        finalTex.generateMipmaps = true;
+        finalTex.minFilter = THREE.LinearMipmapLinearFilter;
+        finalTex.magFilter = THREE.LinearFilter;
+        finalTex.anisotropy = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
+        finalTex.needsUpdate = true;
+        onLoad?.(finalTex);
       },
       undefined,
       (err) => {
@@ -1035,17 +1058,10 @@ export default class ArtGallery3D {
   createArtwork(data, index) {
     const artworkGroup = new THREE.Group();
     // Start with unit geometry; final size will be applied via scale
-    const frameGeometry = new THREE.BoxGeometry(1, 1, 0.1);
-    const frameMaterial = new THREE.MeshStandardMaterial({
-      color: 0x111111,
-      roughness: 0.5,
-      metalness: 0.05,
-    });
-    const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+    const frame = new THREE.Mesh(this._sharedFrameGeo, this._sharedFrameMat);
     frame.castShadow = true;
     artworkGroup.add(frame);
 
-    const canvasGeometry = new THREE.PlaneGeometry(1, 1);
     const canvasMaterial = this._artUnlit
       ? new THREE.MeshBasicMaterial({
           // Multiply texture by this color to dim or brighten in unlit mode
@@ -1060,7 +1076,7 @@ export default class ArtGallery3D {
     let canvas = null;
     if (data.image) {
       const imgUrl = this._resolveArtworkImage(data.image);
-      canvas = new THREE.Mesh(canvasGeometry, canvasMaterial);
+      canvas = new THREE.Mesh(this._sharedCanvasGeo, canvasMaterial);
       canvas.position.z = 0.06;
       canvas.castShadow = false; // do not let canvas be affected by light/shadows
       artworkGroup.add(canvas);
@@ -1112,7 +1128,7 @@ export default class ArtGallery3D {
       data._artMapHigh = artMapHigh;
       data._canvasMaterial = canvasMaterial;
       data._currentLOD = "low";
-      canvas = new THREE.Mesh(canvasGeometry, canvasMaterial);
+      canvas = new THREE.Mesh(this._sharedCanvasGeo, canvasMaterial);
       canvas.position.z = 0.06;
       canvas.castShadow = false;
       artworkGroup.add(canvas);
