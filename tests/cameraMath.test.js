@@ -37,3 +37,40 @@ describe("smoothTowardAngle", () => {
     expect(next).toBeCloseTo(1, 3);
   });
 });
+
+import * as THREE from "three";
+import { computeFramingDistance, clampDistance, pointAlong } from "../src/cameraMath.js";
+
+describe("computeFramingDistance", () => {
+  it("obra 2x2, fov 75°, margen 1.15", () => {
+    // half = 1; tan(37.5°) ≈ 0.76733; 1/0.76733*1.15 ≈ 1.4987
+    const d = computeFramingDistance(2, 2, 75, 1.15);
+    expect(d).toBeCloseTo(1.4987, 2);
+  });
+  it("usa la dimensión mayor (obra ancha)", () => {
+    const wide = computeFramingDistance(4, 1, 75, 1.0);
+    const tall = computeFramingDistance(1, 4, 75, 1.0);
+    expect(wide).toBeCloseTo(tall, 6);
+  });
+});
+
+describe("clampDistance", () => {
+  it("respeta el deseado si hay espacio de sobra", () => {
+    expect(clampDistance(2, Infinity, 0.35, 0.6)).toBeCloseTo(2, 6);
+  });
+  it("recorta a maxTravel - guard", () => {
+    expect(clampDistance(5, 3, 0.35, 0.6)).toBeCloseTo(2.65, 6);
+  });
+  it("nunca baja del mínimo", () => {
+    expect(clampDistance(5, 0.5, 0.35, 0.6)).toBeCloseTo(0.6, 6);
+  });
+});
+
+describe("pointAlong", () => {
+  it("proyecta origen + dir*dist", () => {
+    const p = pointAlong(new THREE.Vector3(0, 2, 0), new THREE.Vector3(1, 0, 0), 3);
+    expect(p.x).toBeCloseTo(3, 6);
+    expect(p.y).toBeCloseTo(2, 6);
+    expect(p.z).toBeCloseTo(0, 6);
+  });
+});
