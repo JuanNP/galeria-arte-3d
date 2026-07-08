@@ -71,5 +71,29 @@
     "artist": "Carl Bloch",
     "description": "Entramos en una hostería romana, y ¡sorpresa!, la mesa a primer término, con tres ocupantes, dos mujeres y un hombre se limitan a observarnos, a nosotros, al espectador. Han reparado en nuestra presencia, ya sea porque nos conozcan de algo o llevemos una pinta ridícula, pero de un modo u otro sienten la necesidad de mirar intensamente, sin ningún tipo de reparo.",
     "image": "art_12.jpg"
+  },
+  {
+    "title": "Mujer con sombrilla",
+    "artist": "Claude Monet",
+    "description": "Mujer con sombrilla es una pintura al óleo sobre lienzo realizada por Claude Monet en 1886. La obra representa a una mujer vestida con un vestido blanco y un sombrero, caminando por un campo de flores bajo un cielo azul. La pintura es un ejemplo del estilo impresionista de Monet, que se caracteriza por el uso de colores brillantes y la captura de la luz y el movimiento.",
+    "image": "art_13.jpg"
+  },
+  {
+    "title": "Cupido dormido",
+    "artist": "Caravaggio",
+    "description": "El mundo oscuro y carcelario de Caravaggio representa un Cupido, o eso parece ser por sus alas y sus inscripciones, de una forma poco romántica y común. ¿Está dormido? ¿Está enfermo? ¿Muerto? ¿O es un ángel caído? La obra es un ejemplo del estilo barroco de Caravaggio, que se caracteriza por el uso de la luz y la sombra para crear un efecto dramático y realista.",
+    "image": "art_14.jpg"
+  },
+  {
+    "title": "Ulises y Argos",
+    "artist": "Briton Rivière",
+    "description": "Ulises y Argos es una pintura al óleo sobre lienzo realizada por Briton Rivière en 1889. La obra representa a Ulises, el héroe de la mitología griega, regresando a su hogar después de la guerra de Troya y encontrando a su perro Argos, que lo reconoce y se alegra de verlo. La pintura es un ejemplo del estilo realista de Rivière, que se caracteriza por la atención al detalle y la representación de la vida cotidiana y la naturaleza.",
+    "image": "art_15.jpg"
+  },
+  {
+    "title": "El lamento por Ícaro",
+    "artist": "Herbert James Draper",
+    "description": "Esta fue la obra más exitosa de Draper, que le hizo merecedor de una Medalla de Oro en el mismo año. Siendo la temática mitológica su predilecta, decide recrear el mito de Ícaro, o mejor dicho, su traumático final. En la obra vemos el hermoso cuerpo de Ícaro fallecido, recostado sobre las alas desplegadas y las correas de cuero medio rotas. Tres ninfas de las aguas lo rodean, con un semblante triste al saber que tan apuesto muchacho haya muerto joven.",
+    "image": "art_16.jpg"
   }
 ]
