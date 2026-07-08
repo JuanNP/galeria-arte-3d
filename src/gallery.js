@@ -14,7 +14,6 @@ export default class ArtGallery3D {
     this.isLoading = true;
     this._spots = [];
     this._points = [];
-    this._artFillLights = [];
     this.onRoomChange = options.onRoomChange || (() => {});
     this.onArtworkSelect = options.onArtworkSelect || (() => {});
 
@@ -300,27 +299,6 @@ export default class ArtGallery3D {
     const FRAME_PAD = 0.2; // 10cm border around the image
     if (canvasMesh) canvasMesh.scale.set(w, h, 1);
     if (frameMesh) frameMesh.scale.set(w + FRAME_PAD, h + FRAME_PAD, 1); // keep depth constant
-  }
-
-  // Attach a local spotlight to an artwork so the image is fully readable
-  _attachArtworkFillLight(artworkGroup, w, h) {
-    // Wide, soft spotlight placed slightly in front of the canvas, aimed back to its center.
-    const spot = new THREE.SpotLight(0xffffff, 2.0, 3.5, Math.PI / 3, 0.7, 2);
-    spot.castShadow = false; // this is just a fill; shadows come from ceiling lights
-    spot.layers.enable(1); // only needs to light layer 1 (artworks)
-
-    // Position in the artwork's LOCAL space (group rotates with the wall)
-    const yMid = h * 0.15; // a bit above center to mimic gallery aiming
-    spot.position.set(0, yMid, 0.55); // 55cm in front of the canvas
-
-    // Create/attach target at the canvas center
-    const target = new THREE.Object3D();
-    target.position.set(0, yMid, 0.0);
-    artworkGroup.add(target);
-    spot.target = target;
-
-    artworkGroup.add(spot);
-    this._artFillLights.push(spot);
   }
 
   setupControls() {
@@ -1114,8 +1092,6 @@ export default class ArtGallery3D {
         const newY = this._artBottomMargin + data.size[1] * 0.5;
         data.position = [x0, newY, z0];
         artworkGroup.position.y = newY;
-        // Local fill light so the artwork reads as fully illuminated
-        this._attachArtworkFillLight(artworkGroup, data.size[0], data.size[1]);
       });
       // (Optional safety) Ensure canvases do NOT receive shadow maps from frames/walls
       canvas.receiveShadow = false; // keep image clean from shadow maps
@@ -1158,8 +1134,6 @@ export default class ArtGallery3D {
       const newY = this._artBottomMargin + data.size[1] * 0.5;
       data.position = [x0, newY, z0];
       artworkGroup.position.y = newY;
-      // Local fill light so the artwork reads as fully illuminated
-      this._attachArtworkFillLight(artworkGroup, data.size[0], data.size[1]);
     }
 
     data.mesh = artworkGroup;
