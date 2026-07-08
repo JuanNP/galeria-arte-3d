@@ -383,114 +383,6 @@ export default class ArtGallery3D {
     });
   }
 
-  _updateSmoothLook() {
-    if (!this._lookAtTarget) return;
-
-    // When not locked, use camera's current rotation (mouse look)
-    if (!this._isViewLocked) {
-      // No need to update lookAtTarget when using mouse look
-      // Camera rotation is handled directly in updateCameraRotation
-      return;
-    }
-
-    // If locked, force both targets to the locked point
-    if (this._isViewLocked && this._lockedTarget) {
-      this._lookAtTarget.copy(this._lockedTarget);
-      this._lookAtTargetDesired.copy(this._lockedTarget);
-    }
-
-    if (this._lookAtTargetDesired) {
-      this._lookAtTarget.lerp(this._lookAtTargetDesired, this._targetLerp);
-    }
-
-    this._lookAtDummy.position.copy(this.camera.position);
-    // Invert the look target: mirror target around the camera position
-    const _invTarget = this.camera.position
-      .clone()
-      .multiplyScalar(2)
-      .sub(this._lookAtTarget);
-    this._lookAtDummy.lookAt(_invTarget);
-    const desiredQuat = this._lookAtDummy.quaternion;
-    this.camera.quaternion.slerp(desiredQuat, this._slerpFactor);
-  }
-
-  _updateMovement(dt) {
-    if (this._isViewLocked) return;
-
-    // Velocidades locales según teclas presionadas
-    let forward = 0;
-    let strafe = 0;
-
-    if (this._keys.w) forward += 1;
-    if (this._keys.s) forward -= 1;
-    if (this._keys.a) strafe -= 1;
-    if (this._keys.d) strafe += 1;
-
-    if (forward === 0 && strafe === 0) return;
-
-    // Normalizar movimiento para evitar velocidad diagonal más rápida
-    const len = Math.hypot(forward, strafe);
-    if (len > 0) {
-      forward /= len;
-      strafe /= len;
-    }
-
-    const moveSpeed = this._moveSpeed * dt;
-
-    // Direcciones relativas a la vista actual (sin depender de yaw/Euler)
-    const up = new THREE.Vector3(0, 1, 0);
-    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(
-      this.camera.quaternion
-    );
-    fwd.y = 0; // sin subir/bajar
-    if (fwd.lengthSq() > 0) fwd.normalize();
-
-    const right = new THREE.Vector3().crossVectors(fwd, up);
-    if (right.lengthSq() > 0) right.normalize();
-
-    // Desplazamiento global = (adelante/atrás) + (izq/der)
-    const delta = new THREE.Vector3()
-      .copy(fwd)
-      .multiplyScalar(forward * moveSpeed)
-      .add(right.multiplyScalar(strafe * moveSpeed));
-
-    this.camera.position.add(delta);
-    this.camera.position.y = 1.8;
-
-    // Limitar posición dentro de la sala
-    const w = this.hall?.width || 24;
-    const l = this.hall?.length || 24;
-    const safe = 0.6;
-    this.camera.position.x = THREE.MathUtils.clamp(
-      this.camera.position.x,
-      -w / 2 + safe,
-      w / 2 - safe
-    );
-    this.camera.position.z = THREE.MathUtils.clamp(
-      this.camera.position.z,
-      -l / 2 + safe,
-      l / 2 - safe
-    );
-
-    // Detección básica de colisión contra paredes y paneles
-    const cam = this.camera.position;
-    const collided = this._colliders?.some((m) => {
-      const b = new THREE.Box3().setFromObject(m);
-      const margin = 0.3;
-      b.min.x -= margin;
-      b.min.z -= margin;
-      b.max.x += margin;
-      b.max.z += margin;
-      return (
-        cam.x > b.min.x && cam.x < b.max.x && cam.z > b.min.z && cam.z < b.max.z
-      );
-    });
-    if (collided) {
-      this.camera.position.sub(delta);
-      this.camera.position.y = 1.8;
-    }
-  }
-
   _dynamicResTick(ms) {
     if (!this._dyn) return;
     // target ~60fps -> 16.7ms; adjust gently within [1.0, 1.5]
@@ -917,10 +809,6 @@ export default class ArtGallery3D {
     return group;
   }
 
-  createLightTracks(parent, corridorLength, corridorWidth, wallHeight) {
-    // No riel lineal; en sala usaremos rejilla de focos desde setupLights/refresh
-  }
-
   rebuildArtworkSpots() {
     // Remove existing artwork spots
     for (const s of this._spots) {
@@ -929,7 +817,7 @@ export default class ArtGallery3D {
     }
     this._spots = [];
 
-    const wallHeight = this.hall?.height || this.corridor?.wallHeight || 6;
+    const wallHeight = this.hall?.height || 6;
 
     // Create one spotlight per artwork, positioned directly above its wall, aimed at the artwork center
     for (const a of this.artworks) {
@@ -958,66 +846,6 @@ export default class ArtGallery3D {
     }
   }
 
-  repositionArtworksAlongCorridor() {
-    // Recalcula Z de todas las obras según los márgenes actuales sin cambiar su lado (X) ni altura (Y)
-    if (!this.artworks || !this.artworks.length) return;
-    const N = this.artworks.length;
-    const corridorWidth = this.corridor?.width || 6;
-    const corridorLength = this.corridor?.length || 80;
-    const halfLen = corridorLength / 2;
-    const startMargin = this._corridorStartMargin;
-    const endMargin = this._corridorEndMargin;
-    const frameDepth = 0.1;
-    const gap = 0.12;
-    const xInner = corridorWidth / 2 - (frameDepth + gap);
-    const startZ = -halfLen + startMargin;
-    const usableLen = corridorLength - startMargin - endMargin;
-    const spacingZ = N > 1 ? usableLen / (N - 1) : 0;
-
-    this.artworks.forEach((a, i) => {
-      if (!a || !a.mesh) return;
-      const sideRight = i % 2 === 0;
-      const xOffset = sideRight ? xInner : -xInner;
-      const z = startZ + i * spacingZ;
-
-      // Mantener Y actual
-      const y = a.mesh.position.y;
-      a.side = sideRight ? "right" : "left";
-      a.position = [xOffset, y, z];
-      a.mesh.position.set(xOffset, y, z);
-      a.mesh.rotation.y = sideRight ? -Math.PI / 2 : Math.PI / 2;
-    });
-
-    // Reajustar focos si se usan por-obra
-    if (this._spots && this._spots.length) this.rebuildArtworkSpots();
-  }
-
-  updateCorridorMargins(start, end) {
-    if (typeof start === "number")
-      this._corridorStartMargin = Math.max(0, start);
-    if (typeof end === "number") this._corridorEndMargin = Math.max(0, end);
-    this.repositionArtworksAlongCorridor();
-
-    // Asegurar que la cámara respeta los nuevos límites inmediatamente
-    const corridorLength = this.corridor?.length || 80;
-    const halfLen = corridorLength / 2;
-    const startZ = -halfLen + this._corridorStartMargin;
-    const endZ = halfLen - this._corridorEndMargin;
-
-    const minZ = Math.max(
-      -halfLen + this._corridorWallSafe,
-      startZ - this._corridorEndViewLead
-    );
-    const maxZ = Math.min(
-      halfLen - this._corridorWallSafe,
-      endZ + this._corridorStartViewLead
-    );
-    this.camera.position.z = THREE.MathUtils.clamp(
-      this.camera.position.z,
-      minZ,
-      maxZ
-    );
-  }
   // Public API: rebuild per-artwork spotlights after adding/removing artworks at runtime
   refreshLighting() {
     this.rebuildArtworkSpots();
