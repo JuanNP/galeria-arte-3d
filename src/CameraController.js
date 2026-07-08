@@ -180,7 +180,13 @@ export default class CameraController {
     const h = size.y;
     const desired = computeFramingDistance(w, h, this.camera.fov, FRAME_MARGIN);
 
-    // Rayo desde el centro hacia fuera para hallar el obstáculo más cercano
+    // Rayo desde el centro hacia fuera para hallar el obstáculo más cercano.
+    // NOTA: depende de que los colisionadores (paredes/paneles) usen FrontSide
+    // (por defecto). El origen del rayo está DENTRO del panel de montaje, cuya
+    // cara interior queda de espaldas al rayo y es descartada por back-face
+    // culling; así el rayo ignora el propio soporte y golpea la pared/panel
+    // opuesto. Si algún material de colisión pasa a DoubleSide, este clamp
+    // colapsaría la distancia al mínimo para obras montadas en paneles.
     this._raycaster.set(center.clone().addScaledVector(normal, 0.05), normal);
     const hits = this._raycaster.intersectObjects(this.getColliders(), true);
     const maxTravel = hits.length ? hits[0].distance : Infinity;
