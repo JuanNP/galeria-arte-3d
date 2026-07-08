@@ -129,3 +129,33 @@ describe("CameraController _computeFocus / eventos / colisión", () => {
     expect(c.isTweening).toBe(false);
   });
 });
+
+describe("CameraController mirada bloqueada (orientación)", () => {
+  it("al estar bloqueada, la cámara MIRA HACIA la obra (no en dirección contraria)", () => {
+    const cam = makeCamera();
+    const c = new CameraController({
+      camera: cam,
+      domElement: fakeDom(),
+      getColliders: () => [],
+      hallBounds: { width: 34, length: 34 },
+    });
+    // Obra en pared este (x=+16.8), normal hacia el interior (-X), tamaño 2x2
+    const center = new THREE.Vector3(16.8, 2, 0);
+    const normal = new THREE.Vector3(-1, 0, 0);
+    const art = makeArtwork(center, normal, new THREE.Vector3(0.1, 2, 2));
+
+    c.focusOn(art); // fija _lockedTarget = center, isViewLocked = true
+    // Colocamos la cámara donde queda el destino (delante de la obra, lado +X)
+    cam.position.set(13.8, 2, 0);
+    // Simulamos varios frames del bucle bloqueado para que oriente la mirada
+    for (let i = 0; i < 120; i++) c.update(1 / 60);
+
+    const fwd = new THREE.Vector3();
+    cam.getWorldDirection(fwd);
+    // Vector cámara->obra
+    const toArt = center.clone().sub(cam.position).normalize();
+    // La cámara debe mirar HACIA la obra: producto punto claramente positivo
+    const dot = fwd.dot(toArt);
+    expect(dot).toBeGreaterThan(0.9);
+  });
+});

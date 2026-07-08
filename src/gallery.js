@@ -720,21 +720,23 @@ export default class ArtGallery3D {
       // Registrar superficies para colocación de obras (ambos lados)
       if (alongZ) {
         const half = len / 2;
+        // Cara -X del panel (mira hacia -X, lejos del cuerpo del panel)
         this._supports.push({
           type: "panel",
           side: "left",
           x: sx - 0.11,
           z0: sz - half,
           z1: sz + half,
-          rotY: Math.PI / 2,
+          rotY: -Math.PI / 2,
         });
+        // Cara +X del panel (mira hacia +X, lejos del cuerpo del panel)
         this._supports.push({
           type: "panel",
           side: "right",
           x: sx + 0.11,
           z0: sz - half,
           z1: sz + half,
-          rotY: -Math.PI / 2,
+          rotY: Math.PI / 2,
         });
       } else {
         const half = len / 2;

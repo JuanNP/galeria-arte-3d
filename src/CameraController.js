@@ -37,7 +37,8 @@ export default class CameraController {
     this.isTweening = false;
     this._lockedTarget = new THREE.Vector3();
 
-    this._dummy = new THREE.Object3D();
+    this._lookMatrix = new THREE.Matrix4();
+    this._lookQuat = new THREE.Quaternion();
     this._raycaster = new THREE.Raycaster();
 
     this._initialPos = camera.position.clone();
@@ -96,10 +97,13 @@ export default class CameraController {
 
   update(dt) {
     if (this.isViewLocked) {
-      this._dummy.position.copy(this.camera.position);
-      this._dummy.lookAt(this._lockedTarget);
+      // Convención de CÁMARA (mira por -Z): Matrix4.lookAt orienta -Z hacia el
+      // objetivo. Usar un Object3D.lookAt normal daría +Z→objetivo e invertiría
+      // la mirada 180° al copiar el quaternion a la cámara.
+      this._lookMatrix.lookAt(this.camera.position, this._lockedTarget, this.camera.up);
+      this._lookQuat.setFromRotationMatrix(this._lookMatrix);
       const a = 1 - Math.exp(-LOOK_LAMBDA * dt);
-      this.camera.quaternion.slerp(this._dummy.quaternion, a);
+      this.camera.quaternion.slerp(this._lookQuat, a);
       return;
     }
     if (!this.isTweening) this._updateMovement(dt);
