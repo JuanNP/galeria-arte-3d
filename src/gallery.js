@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { gsap } from "gsap";
+import CameraController from "./CameraController.js";
 
 export default class ArtGallery3D {
   constructor(options = {}) {
@@ -24,9 +25,10 @@ export default class ArtGallery3D {
     this.setupScene();
     this.setupCamera();
     this.setupRenderer();
-    this.setupControls();
+    this.createRooms();      // crea this.hall (necesario para el controlador)
+    this.setupControls();    // ahora solo raycasting de hover/click
+    this.setupCameraController();
     this.setupLights();
-    this.createRooms();
     this.createArtworks();
     this.animate();
     this.hideLoadingScreen();
@@ -45,48 +47,17 @@ export default class ArtGallery3D {
       0.1,
       1000
     );
-    // Posición inicial dentro de la sala
     this.camera.position.set(0, 1.8, 8);
     this.camera.lookAt(0, 1.8, 0);
     this.camera.layers.enable(1);
-    // Cache initial camera transform for reset
-    this._initialCamPos = this.camera.position.clone();
-    this._initialCamQuat = this.camera.quaternion.clone();
-    // Smooth look-at helpers
-    this._lookAtTarget = new THREE.Vector3(0, 2, 0);
-    this._lookAtDummy = new THREE.Object3D();
-    // Camera smoothing and sensitivity tweaks
-    this._targetLerp = 0.3;
-    this._slerpFactor = 0.25;
-    this._mouseSensitivity = 0.016;
-    this._maxPitch = Math.PI / 3; // ~60° up/down
-    this._lookRadius = 10; // meters to virtual look-at focus
-    // Smooth target interpolation & view lock
-    this._lookAtTargetDesired = new THREE.Vector3(0, 2, 0);
-    this._isViewLocked = false;
-    this._lockedTarget = null;
-    // Movement keys and speed
     this._clock = new THREE.Clock();
-    this._keys = { w: false, s: false, a: false, d: false };
-    this._moveSpeed = 10.0;
-    // Colisiones básicas
     this._colliders = [];
-    // Márgenes del pasillo (asimétricos): inicio y final
-    // Márgenes y leads del pasillo
-    this._corridorStartMargin = 8.0; // margen inicio (Z−)
-    this._corridorStartViewLead = 10.0; // retroceso extra detrás de la 1ª obra (solo Z−)
-    this._corridorEndViewLead = 0.0; // avance extra más allá de la última obra (solo Z+)
-    this._corridorWallSafe = 0.5; // distancia mínima segura a las paredes reales
-    this._corridorEndMargin = 8.0;
-    // Slight self-illumination so images don't look too dark under spot shadows
-    this._artEmissiveBoost = 0.45; // subtle self-illumination to keep details visible
-    // If true, artworks use an unlit material (always fully illuminated)
+    // Auto-iluminación sutil / material unlit de las obras
+    this._artEmissiveBoost = 0.45;
     this._artUnlit = true;
-    // Brightness multiplier for unlit artworks (0.0–1.0; 1 = original texture)
     this._artUnlitBrightness = 0.25;
-    // Constant: distance from floor to the **bottom** of every artwork (meters)
     this._artBottomMargin = 1.1;
-    // Optional FPS cap (set to 60; set to 0 to disable)
+    // Cap opcional de FPS
     this._fpsCap = 60;
     this._lastFrameTime = 0;
   }
@@ -353,57 +324,8 @@ export default class ArtGallery3D {
   }
 
   setupControls() {
-    let isMouseDown = false;
-    let mouseX = 0;
-    let mouseY = 0;
-    // Store target rotations on the instance so we can reset them
-    this._targetRotationX = 0;
-    this._targetRotationY = this.camera?.rotation?.y || 0;
-    this._freezeRotation = false;
-    // Mouse look sensitivity
-    this._mouseSensitivityX = 0.002; // sensibilidad horizontal más baja
-    this._mouseSensitivityY = 0.001;
-    this._mousePanXSensitivity = 0.006; // traslación horizontal con drag (m/px)
-    this._yawMaxStep = 0.1; // paso máximo de yaw por frame (~2.9°)
-
-    this.renderer.domElement.addEventListener("mousedown", (event) => {
-      isMouseDown = true;
-      mouseX = event.clientX;
-      mouseY = event.clientY;
-    });
-
-    this.renderer.domElement.addEventListener("mouseup", () => {
-      isMouseDown = false;
-    });
-
-    // Track last pointerId to safely release capture later
-    this._lastPointerId = null;
-    this.renderer.domElement.addEventListener("pointerdown", (e) => {
-      this._lastPointerId = e.pointerId;
-    });
-    this.renderer.domElement.addEventListener("pointerup", () => {
-      this._lastPointerId = null;
-    });
-
-    this.renderer.domElement.addEventListener("mousemove", (event) => {
-      if (isMouseDown && !this._isViewLocked && !this._isCameraTweening) {
-        const deltaX = event.clientX - mouseX;
-        // Girar solo alrededor del sujeto (pivot = posición de la cámara)
-        this._targetRotationY -= deltaX * this._mouseSensitivityX; // yaw
-        // Normalizar a [-PI, PI] para evitar acumulación infinita
-        const TWO_PI = Math.PI * 2;
-        this._targetRotationY =
-          ((this._targetRotationY + Math.PI) % TWO_PI) - Math.PI;
-        this._targetRotationX = 0; // sin pitch
-
-        mouseX = event.clientX;
-        mouseY = event.clientY;
-      }
-    });
-
-    // Raycasting para hover/click en obras
+    // Raycasting para hover/click en obras (el input de cámara vive en CameraController)
     const raycaster = new THREE.Raycaster();
-    // Raycast only against artworks (layer 1)
     raycaster.layers.set(1);
     const mouse = new THREE.Vector2();
     const getIntersections = (event) => {
@@ -415,14 +337,11 @@ export default class ArtGallery3D {
       return raycaster.intersectObjects(meshes, true);
     };
 
-    // Throttle hover raycasting
     let hoverRAF = null;
     let lastMoveEvt = null;
     let lastHover = null;
     this.renderer.domElement.addEventListener("mousemove", (event) => {
-      if (this._isViewLocked) return;
-      if (this._isCameraTweening) return;
-      if (isMouseDown) return;
+      if (this.camControls?.isViewLocked || this.camControls?.isTweening) return;
       lastMoveEvt = event;
       if (hoverRAF) return;
       hoverRAF = requestAnimationFrame(() => {
@@ -430,9 +349,7 @@ export default class ArtGallery3D {
         const hits = getIntersections(lastMoveEvt);
         const hit = hits.find((h) => h.object?.parent);
         const group = hit?.object?.parent;
-        if (lastHover && lastHover !== group) {
-          this.highlightArtwork(lastHover, false);
-        }
+        if (lastHover && lastHover !== group) this.highlightArtwork(lastHover, false);
         if (group) {
           this.highlightArtwork(group, true);
           lastHover = group;
@@ -445,7 +362,7 @@ export default class ArtGallery3D {
     });
 
     this.renderer.domElement.addEventListener("click", (event) => {
-      if (this._isCameraTweening) return;
+      if (this.camControls?.isViewLocked || this.camControls?.isTweening) return;
       const hits = getIntersections(event);
       const hit = hits.find((h) => h.object?.parent);
       const group = hit?.object?.parent;
@@ -453,53 +370,17 @@ export default class ArtGallery3D {
       const art = this.artworks.find((a) => a.mesh === group);
       if (art) this.selectArtwork(art);
     });
+  }
 
-    // Keyboard handling with smoother movement
-    document.addEventListener("keydown", (event) => {
-      // Allow Escape to work even when view is locked
-      if (event.code === "Escape") {
-        this.deselectArtwork();
-        // Also call the callback to update React state
-        this.onArtworkSelect(null);
-        return;
-      }
-
-      // Block other keys when view is locked
-      if (this._isViewLocked) return;
-
-      if (event.code === "KeyW") this._keys.w = true;
-      if (event.code === "KeyS") this._keys.s = true;
-      if (event.code === "KeyA") this._keys.a = true;
-      if (event.code === "KeyD") this._keys.d = true;
-      if (event.code === "Space") this.selectNearestArtwork?.();
+  setupCameraController() {
+    this.camControls = new CameraController({
+      camera: this.camera,
+      domElement: this.renderer.domElement,
+      getColliders: () => this._colliders || [],
+      hallBounds: { width: this.hall.width, length: this.hall.length },
+      onRelease: () => this.onArtworkSelect?.(null),
+      onSelectNearest: () => this.selectNearestArtwork(),
     });
-    document.addEventListener("keyup", (event) => {
-      if (event.code === "KeyW") this._keys.w = false;
-      if (event.code === "KeyS") this._keys.s = false;
-      if (event.code === "KeyA") this._keys.a = false;
-      if (event.code === "KeyD") this._keys.d = false;
-    });
-
-    this.updateCameraRotation = () => {
-      if (this._freezeRotation) return;
-      if (this._isViewLocked) return; // cuando está bloqueado, _updateSmoothLook gestiona el target
-
-      // Mantener vista estable sin pitch/roll
-      this.camera.up.set(0, 1, 0);
-      this.camera.rotation.x = 0;
-      this.camera.rotation.z = 0;
-
-      // Avanzar hacia el objetivo con límite por frame
-      const cy = this.camera.rotation.y;
-      const ty = this._targetRotationY;
-      let dy = ((ty - cy + Math.PI) % (Math.PI * 2)) - Math.PI;
-
-      const maxStep = this._yawMaxStep ?? 0.05;
-      if (dy > maxStep) dy = maxStep;
-      if (dy < -maxStep) dy = -maxStep;
-
-      this.camera.rotation.y = cy + dy;
-    };
   }
 
   _updateSmoothLook() {
@@ -1554,136 +1435,14 @@ export default class ArtGallery3D {
   }
 
   selectArtwork(artwork) {
+    if (!artwork || !artwork.mesh) return;
     this.onArtworkSelect?.(artwork);
-    const group = artwork.mesh;
-    if (!group) return;
-    group.updateWorldMatrix(true, true);
-
-    // World-space center of the artwork
-    const bbox = new THREE.Box3().setFromObject(group);
-    const center = new THREE.Vector3();
-    bbox.getCenter(center);
-
-    // Lock the view to the artwork and reset yaw/pitch
-    this._lockedTarget = center.clone();
-    this._isViewLocked = true;
-    this._lookAtTarget = center.clone();
-    this._lookAtTargetDesired = center.clone();
-    this._targetRotationX = 0;
-    this._targetRotationY = 0;
-
-    // Place camera on the opposite wall for a natural, front-facing view
-    const half = (this.corridor?.width || 6) / 2;
-    const wallGuard = 0.35; // keep a small offset from the wall to avoid clipping
-    // If artwork is on left wall (x < 0), go to right wall (+X); if on right wall, go to left (-X)
-    const destX = center.x < 0 ? half - wallGuard : -half + wallGuard;
-    // Keep same Y and Z as the artwork center for perfect alignment
-    const dest = new THREE.Vector3(destX, center.y, center.z);
-
-    // Freeze mouse smoothing while we animate and keep the camera looking at the art
-    this._freezeRotation = true;
-    // Release pointer capture to avoid stuck drag state during tween
-    if (
-      this._lastPointerId != null &&
-      this.renderer.domElement.hasPointerCapture?.(this._lastPointerId)
-    ) {
-      try {
-        this.renderer.domElement.releasePointerCapture(this._lastPointerId);
-      } catch {}
-    }
-    // Ensure GSAP picks up the latest camera position values
-    this.camera.position.x = this.camera.position.x;
-    this.camera.position.y = this.camera.position.y;
-    this.camera.position.z = this.camera.position.z;
-    // Ensure camera has a consistent up vector to prevent flips
-    this.camera.up.set(0, 1, 0);
-    // Mark tweening (used to gate inputs) and pre-orient once toward the artwork center
-    this._isCameraTweening = true;
-    this._lookAtDummy.position.copy(this.camera.position);
-    this._lookAtDummy.lookAt(center);
-    this.camera.quaternion.copy(this._lookAtDummy.quaternion);
-    gsap.to(this.camera.position, {
-      x: dest.x,
-      y: dest.y,
-      z: dest.z,
-      duration: 1.0,
-      ease: "power3.inOut",
-      onUpdate: () => {
-        // Keep lock targets pinned at the artwork center; orientation handled by _updateSmoothLook()
-        this._lockedTarget.copy(center);
-        this._lookAtTarget.copy(center);
-        this._lookAtTargetDesired.copy(center);
-      },
-      onComplete: () => {
-        this._freezeRotation = false;
-        this._isCameraTweening = false;
-        // remain locked on artwork until user deselects
-        this._lockedTarget.copy(center);
-        this._lookAtTarget.copy(center);
-        this._lookAtTargetDesired.copy(center);
-      },
-    });
+    this.camControls.focusOn(artwork);
   }
 
   deselectArtwork() {
-    // Unlock view-lock state
-    this._isViewLocked = false;
-    this._lockedTarget = null;
     this.selectedArtwork = null;
-
-    // Target: recenter X only (keep current Z), at eye height
-    const corridorLength = this.corridor?.length || 80;
-    const halfLen = corridorLength / 2;
-    const startZ = -halfLen + this._corridorStartMargin;
-    const endZ = halfLen - this._corridorEndMargin;
-
-    const minZ = Math.max(
-      -halfLen + this._corridorWallSafe,
-      startZ - this._corridorEndViewLead
-    );
-    const maxZ = Math.min(
-      halfLen - this._corridorWallSafe,
-      endZ + this._corridorStartViewLead
-    );
-    const currentZ = THREE.MathUtils.clamp(this.camera.position.z, minZ, maxZ);
-    const end = new THREE.Vector3(0, 2, currentZ);
-
-    // Prepare tween flags
-    this._freezeRotation = true;
-    this._isCameraTweening = true;
-    this.camera.up.set(0, 1, 0);
-
-    gsap.to(this.camera.position, {
-      x: end.x,
-      y: end.y,
-      z: end.z,
-      duration: 1.0,
-      ease: "power3.inOut",
-      onUpdate: () => {
-        // Aim forward down the corridor while returning
-        const forward = new THREE.Vector3(0, 0, -1);
-        const look = this.camera.position
-          .clone()
-          .add(forward.multiplyScalar(this._lookRadius))
-          .setY(2);
-        this._lookAtTarget.copy(look);
-        this._lookAtTargetDesired.copy(look);
-      },
-      onComplete: () => {
-        this._freezeRotation = false;
-        this._isCameraTweening = false;
-        // Ensure unlocked forward look is kept after tween
-        const forward = new THREE.Vector3(0, 0, -1);
-        const look = this.camera.position
-          .clone()
-          .add(forward.multiplyScalar(this._lookRadius))
-          .setY(2);
-        this._lookAtTarget.copy(look);
-        this._lookAtTargetDesired.copy(look);
-        // Sincronizar yaw libre con la orientación actual
-        this._targetRotationY = this.camera.rotation.y;
-      },
-    });
+    this.camControls?.release();
   }
 
   setupEventListeners() {}
@@ -1724,27 +1483,9 @@ export default class ArtGallery3D {
 
   // Public API: reset camera to its initial pose
   resetCamera() {
-    if (!this.camera) return;
-    if (this._initialCamPos && this._initialCamQuat) {
-      this.camera.position.copy(this._initialCamPos);
-      this.camera.quaternion.copy(this._initialCamQuat);
-    } else {
-      // Fallback default - posición al final del pasillo
-      const corridorLength = 80;
-      this.camera.position.set(0, 2, corridorLength / 2 - 5);
-      this.camera.lookAt(0, 2, -corridorLength / 2);
-    }
-    // Reset mouse-look smoothing targets
-    this._targetRotationX = 0;
-    this._targetRotationY = 0;
-    // Ensure camera is oriented to initial look direction
-    const corridorLength = 80;
-    this.camera.lookAt(0, 2, -corridorLength / 2);
-    this._lookAtTarget = new THREE.Vector3(0, 2, 0);
-    this._targetRotationX = 0;
-    this._targetRotationY = 0;
-
-    this.deselectArtwork();
+    if (!this.camControls) return;
+    this.camControls.reset();
+    this.onArtworkSelect?.(null);
   }
 
   hideLoadingScreen() {
@@ -1764,24 +1505,18 @@ export default class ArtGallery3D {
   }
 
   animate() {
-    requestAnimationFrame(() => this.animate());
-    // FPS cap (skip rendering if frame arrived too soon)
+    this._rafId = requestAnimationFrame(() => this.animate());
     if (this._fpsCap && this._fpsCap > 0) {
       const now = performance.now();
       const minMs = 1000 / this._fpsCap;
-      if (this._lastFrameTime && now - this._lastFrameTime < minMs) {
-        return; // next RAF ya programado
-      }
+      if (this._lastFrameTime && now - this._lastFrameTime < minMs) return;
       this._lastFrameTime = now;
     }
     const dt = this._clock.getDelta();
-    this._updateMovement(dt);
-    // Dynamic resolution uses the measured milliseconds for this frame
+    this.camControls.update(dt);
     this._dynamicResTick(dt * 1000);
     this._updateCulling();
     this._updateLOD();
-    this.updateCameraRotation();
-    this._updateSmoothLook();
     this.renderer.render(this.scene, this.camera);
   }
 }
