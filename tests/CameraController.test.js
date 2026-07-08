@@ -46,3 +46,49 @@ describe("CameraController movimiento/giro", () => {
     expect(cam.position.y).toBeCloseTo(1.8, 6);
   });
 });
+
+function makeArtwork(center, normal, size) {
+  // Grupo con un mesh hijo de tamaño `size` centrado en `center`.
+  const group = new THREE.Group();
+  const geo = new THREE.BoxGeometry(size.x, size.y, size.z);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial());
+  group.add(mesh);
+  group.position.copy(center);
+  group.updateWorldMatrix(true, true);
+  return { mesh: group, _normal: normal.clone() };
+}
+
+describe("CameraController focusOn/release", () => {
+  it("coloca la cámara frente a la obra a lo largo de su normal", () => {
+    const cam = makeCamera();
+    const c = new CameraController({
+      camera: cam,
+      domElement: fakeDom(),
+      getColliders: () => [],
+      hallBounds: { width: 34, length: 34 },
+    });
+    const center = new THREE.Vector3(16.8, 2, 0);
+    const normal = new THREE.Vector3(-1, 0, 0);
+    const art = makeArtwork(center, normal, new THREE.Vector3(0.1, 2, 2));
+
+    c.focusOn(art);
+    expect(c.isViewLocked).toBe(true);
+    expect(c._lockedTarget.x).toBeCloseTo(center.x, 3);
+    expect(c._lockedTarget.z).toBeCloseTo(center.z, 3);
+  });
+
+  it("release desbloquea y sincroniza el yaw sin salto", () => {
+    const cam = makeCamera();
+    const c = new CameraController({
+      camera: cam,
+      domElement: fakeDom(),
+      getColliders: () => [],
+      hallBounds: { width: 34, length: 34 },
+    });
+    cam.lookAt(new THREE.Vector3(cam.position.x + 1, cam.position.y, cam.position.z));
+    c.isViewLocked = true;
+    c.release();
+    expect(c.isViewLocked).toBe(false);
+    expect(c._targetYaw).toBeCloseTo(c._yaw, 6);
+  });
+});

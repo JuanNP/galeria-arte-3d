@@ -1,6 +1,12 @@
 import * as THREE from "three";
 import { gsap } from "gsap";
-import { normalizeAngle, smoothTowardAngle } from "./cameraMath.js";
+import {
+  normalizeAngle,
+  smoothTowardAngle,
+  computeFramingDistance,
+  clampDistance,
+  pointAlong,
+} from "./cameraMath.js";
 
 const EYE_HEIGHT = 1.8;
 const YAW_LAMBDA = 12;    // suavizado del giro
@@ -9,6 +15,8 @@ const MOVE_LAMBDA = 10;   // rampa de aceleración/frenado
 const MOVE_SPEED = 10.0;
 const WALL_MARGIN = 0.6;  // margen a paredes de la sala
 const COLLIDE_MARGIN = 0.3;
+const FOCUS_GUARD = 0.35;
+const FRAME_MARGIN = 1.15;
 
 export default class CameraController {
   constructor({ camera, domElement, getColliders, hallBounds, onRelease, onSelectNearest }) {
@@ -151,5 +159,84 @@ export default class CameraController {
     }
   }
 
-  // focusOn / release / reset se implementan en la Task 6.
+  focusOn(artwork) {
+    const group = artwork && artwork.mesh;
+    if (!group) return;
+    group.updateWorldMatrix(true, true);
+    const bbox = new THREE.Box3().setFromObject(group);
+    const center = new THREE.Vector3();
+    bbox.getCenter(center);
+    const size = new THREE.Vector3();
+    bbox.getSize(size);
+
+    let normal = artwork._normal
+      ? artwork._normal.clone()
+      : new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), group.rotation.y);
+    normal.y = 0;
+    if (normal.lengthSq() === 0) normal.set(0, 0, 1);
+    normal.normalize();
+
+    const w = Math.max(size.x, size.z); // ancho a lo largo de la pared
+    const h = size.y;
+    const desired = computeFramingDistance(w, h, this.camera.fov, FRAME_MARGIN);
+
+    // Rayo desde el centro hacia fuera para hallar el obstáculo más cercano
+    this._raycaster.set(center.clone().addScaledVector(normal, 0.05), normal);
+    const hits = this._raycaster.intersectObjects(this.getColliders(), true);
+    const maxTravel = hits.length ? hits[0].distance : Infinity;
+    const dist = clampDistance(desired, maxTravel, FOCUS_GUARD, 0.6);
+
+    const dest = pointAlong(center, normal, dist);
+    dest.y = center.y;
+
+    this._lockedTarget.copy(center);
+    this.isViewLocked = true;
+    this.isTweening = true;
+    this._dragging = false;
+    this.camera.up.set(0, 1, 0);
+
+    gsap.killTweensOf(this.camera.position);
+    gsap.to(this.camera.position, {
+      x: dest.x, y: dest.y, z: dest.z,
+      duration: 1.0, ease: "power3.inOut",
+      onComplete: () => { this.isTweening = false; },
+    });
+  }
+
+  release() {
+    const wasActive = this.isViewLocked || this.isTweening;
+    this.isViewLocked = false;
+
+    // Derivar el yaw actual desde el forward de la cámara (sin salto)
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    fwd.y = 0;
+    if (fwd.lengthSq() > 0) fwd.normalize();
+    const yaw = Math.atan2(-fwd.x, -fwd.z);
+    this._yaw = normalizeAngle(yaw);
+    this._targetYaw = this._yaw;
+    this.camera.up.set(0, 1, 0);
+    this.camera.rotation.set(0, this._yaw, 0);
+
+    gsap.killTweensOf(this.camera.position);
+    this.isTweening = true;
+    gsap.to(this.camera.position, {
+      y: EYE_HEIGHT, duration: 0.6, ease: "power3.inOut",
+      onComplete: () => { this.isTweening = false; },
+    });
+
+    if (wasActive) this.onRelease();
+  }
+
+  reset() {
+    gsap.killTweensOf(this.camera.position);
+    this.isViewLocked = false;
+    this.isTweening = false;
+    this._dragging = false;
+    this._vel.set(0, 0, 0);
+    this.camera.position.copy(this._initialPos);
+    this._yaw = this._initialYaw;
+    this._targetYaw = this._initialYaw;
+    this.camera.up.set(0, 1, 0);
+    this.camera.rotation.set(0, this._yaw, 0);
+  }
 }
