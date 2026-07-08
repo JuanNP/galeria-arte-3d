@@ -25,8 +25,8 @@ export default class ArtGallery3D {
     this.setupScene();
     this.setupCamera();
     this.setupRenderer();
-    this.createRooms();      // crea this.hall (necesario para el controlador)
-    this.setupControls();    // ahora solo raycasting de hover/click
+    this.createRooms(); // crea this.hall (necesario para el controlador)
+    this.setupControls(); // ahora solo raycasting de hover/click
     this.setupCameraController();
     this.setupLights();
     this.createArtworks();
@@ -45,7 +45,7 @@ export default class ArtGallery3D {
       75,
       window.innerWidth / window.innerHeight,
       0.1,
-      1000
+      1000,
     );
     this.camera.position.set(0, 1.8, 8);
     this.camera.lookAt(0, 1.8, 0);
@@ -63,7 +63,7 @@ export default class ArtGallery3D {
     this._maxTextureSize = 2048;
     // Obras iluminadas por su foco dedicado (sala oscura). Un pequeño emissive
     // evita que queden en negro puro fuera del punto caliente del foco.
-    this._artEmissiveBoost = 0.12;
+    this._artEmissiveBoost = 0.55;
     this._artUnlit = false;
     this._artUnlitBrightness = 0.25;
     this._artBottomMargin = 1.1;
@@ -76,7 +76,7 @@ export default class ArtGallery3D {
     const container = document.getElementById("canvas-container");
     if (!container) {
       throw new Error(
-        "No se encontró el contenedor #canvas-container para el renderer"
+        "No se encontró el contenedor #canvas-container para el renderer",
       );
     }
 
@@ -268,7 +268,10 @@ export default class ArtGallery3D {
         finalTex.generateMipmaps = true;
         finalTex.minFilter = THREE.LinearMipmapLinearFilter;
         finalTex.magFilter = THREE.LinearFilter;
-        finalTex.anisotropy = Math.min(4, this.renderer.capabilities.getMaxAnisotropy());
+        finalTex.anisotropy = Math.min(
+          4,
+          this.renderer.capabilities.getMaxAnisotropy(),
+        );
         finalTex.needsUpdate = true;
         onLoad?.(finalTex);
       },
@@ -277,7 +280,7 @@ export default class ArtGallery3D {
         console.error(`❌ Error cargando textura: ${url}`, err);
         console.error(`📍 URL resuelta: ${resolvedUrl}`);
         onError?.(err);
-      }
+      },
     );
   }
 
@@ -343,7 +346,8 @@ export default class ArtGallery3D {
     let lastMoveEvt = null;
     let lastHover = null;
     this.renderer.domElement.addEventListener("mousemove", (event) => {
-      if (this.camControls?.isViewLocked || this.camControls?.isTweening) return;
+      if (this.camControls?.isViewLocked || this.camControls?.isTweening)
+        return;
       lastMoveEvt = event;
       if (hoverRAF) return;
       hoverRAF = requestAnimationFrame(() => {
@@ -351,7 +355,8 @@ export default class ArtGallery3D {
         const hits = getIntersections(lastMoveEvt);
         const hit = hits.find((h) => h.object?.parent);
         const group = hit?.object?.parent;
-        if (lastHover && lastHover !== group) this.highlightArtwork(lastHover, false);
+        if (lastHover && lastHover !== group)
+          this.highlightArtwork(lastHover, false);
         if (group) {
           this.highlightArtwork(group, true);
           lastHover = group;
@@ -364,7 +369,8 @@ export default class ArtGallery3D {
     });
 
     this.renderer.domElement.addEventListener("click", (event) => {
-      if (this.camControls?.isViewLocked || this.camControls?.isTweening) return;
+      if (this.camControls?.isViewLocked || this.camControls?.isTweening)
+        return;
       const hits = getIntersections(event);
       const hit = hits.find((h) => h.object?.parent);
       const group = hit?.object?.parent;
@@ -411,9 +417,12 @@ export default class ArtGallery3D {
   // local), por encima y por delante del lienzo, apuntando a su centro.
   // Ilumina tanto la obra (capa 1) como la pared detrás (capa 0).
   _attachArtworkSpot(group, h) {
-    const spot = new THREE.SpotLight(0xfff2e0, 6.0, 16, Math.PI / 6, 0.5, 1.2);
+    const spot = new THREE.SpotLight(0xfff2e0, 1.6, 18, Math.PI / 5, 0.55, 1.1);
     spot.castShadow = false; // sin sombras: mantiene el coste bajo y la pared limpia
-    spot.position.set(0, h * 0.5 + 0.9, 1.7); // arriba y delante (lado sala = +Z local)
+    // Justo por encima del borde superior de la obra y algo por delante (lado
+    // sala = +Z local). Relativo a la altura de la obra para quedar sobre ella
+    // sin atravesar el techo.
+    spot.position.set(0, h * 0.5 + 1.4, 1.6);
     const target = new THREE.Object3D();
     target.position.set(0, 0, 0.05); // centro del lienzo
     group.add(target);
@@ -510,7 +519,7 @@ export default class ArtGallery3D {
     texture.wrapT = THREE.RepeatWrapping;
     texture.anisotropy = Math.min(
       4,
-      this.renderer.capabilities.getMaxAnisotropy()
+      this.renderer.capabilities.getMaxAnisotropy(),
     );
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.needsUpdate = true;
@@ -536,7 +545,7 @@ export default class ArtGallery3D {
     texture.wrapT = THREE.RepeatWrapping;
     texture.anisotropy = Math.min(
       4,
-      this.renderer.capabilities.getMaxAnisotropy()
+      this.renderer.capabilities.getMaxAnisotropy(),
     );
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.needsUpdate = true;
@@ -569,7 +578,7 @@ export default class ArtGallery3D {
     const texture = new THREE.CanvasTexture(canvas);
     texture.anisotropy = Math.min(
       4,
-      this.renderer.capabilities.getMaxAnisotropy()
+      this.renderer.capabilities.getMaxAnisotropy(),
     );
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.needsUpdate = true;
@@ -585,7 +594,7 @@ export default class ArtGallery3D {
     const group = new THREE.Group();
     const width = 34;
     const length = 34;
-    const height = 6;
+    const height = 8;
     const wallThickness = 0.25;
     this.hall = { width, length, height, wallThickness };
     this._colliders = [];
@@ -609,7 +618,7 @@ export default class ArtGallery3D {
         texture.repeat.set(width / 4, length / 4); // Ajustar repetición según el tamaño de la sala
         texture.anisotropy = Math.min(
           4,
-          this.renderer.capabilities.getMaxAnisotropy()
+          this.renderer.capabilities.getMaxAnisotropy(),
         );
         texture.colorSpace = THREE.SRGBColorSpace;
         floorMaterial.map = texture;
@@ -619,14 +628,14 @@ export default class ArtGallery3D {
       (error) => {
         console.warn(
           "No se pudo cargar la textura del piso, usando textura generada:",
-          error
+          error,
         );
         // Fallback a textura generada si falla la carga
         const concreteMap = this.generateConcreteTexture(512);
         concreteMap.repeat.set(width / 6, length / 20);
         floorMaterial.map = concreteMap;
         floorMaterial.needsUpdate = true;
-      }
+      },
     );
     const floor = new THREE.Mesh(floorGeometry, floorMaterial);
     floor.rotation.x = -Math.PI / 2;
@@ -653,7 +662,7 @@ export default class ArtGallery3D {
     const sideWallGeometry = new THREE.BoxGeometry(
       wallThickness,
       height,
-      length
+      length,
     );
     const wallMap = this.generateWhiteNoiseTexture(256, "#ffffff", 0.03);
     wallMap.repeat.set(length / 20, height / 4);
@@ -754,7 +763,7 @@ export default class ArtGallery3D {
 
     // Añadir paredes como colisionadores
     [leftWall, rightWall, northWall, southWall].forEach((w) =>
-      this._colliders.push(w)
+      this._colliders.push(w),
     );
 
     // Registrar soportes perimetrales (excluyendo hueco sur)
@@ -932,7 +941,7 @@ export default class ArtGallery3D {
       const orderWalls = ["west", "east", "north", "south"];
       for (const wname of orderWalls) {
         const g = Object.values(supportsMap).find(
-          (gg) => gg.key === `wall:${wname}`
+          (gg) => gg.key === `wall:${wname}`,
         );
         if (g) allGroups.push({ name: g.key, list: g.list.slice() });
       }
@@ -941,7 +950,7 @@ export default class ArtGallery3D {
         .filter(
           (g) =>
             !g.key.startsWith("wall:") ||
-            !orderWalls.includes(g.key.split(":")[1])
+            !orderWalls.includes(g.key.split(":")[1]),
         )
         .sort((a, b) => a.key.localeCompare(b.key));
       for (const g of otherGroups) {
@@ -1045,7 +1054,7 @@ export default class ArtGallery3D {
         // Size the artwork to preserve the image aspect ratio with safe caps
         const { w, h } = this._computeDisplaySize(
           texture.image?.naturalWidth || texture.image?.width || 1024,
-          texture.image?.naturalHeight || texture.image?.height || 1024
+          texture.image?.naturalHeight || texture.image?.height || 1024,
         );
         data.size = [w, h];
         // Fit to cell if needed
@@ -1191,7 +1200,7 @@ export default class ArtGallery3D {
       this.camera.position.clone(),
       dir,
       0.1,
-      50
+      50,
     );
     const meshes = this.artworks.map((a) => a && a.mesh).filter(Boolean);
     const hits = raycaster.intersectObjects(meshes, true);
