@@ -92,3 +92,40 @@ describe("CameraController focusOn/release", () => {
     expect(c._targetYaw).toBeCloseTo(c._yaw, 6);
   });
 });
+
+describe("CameraController _computeFocus / eventos / colisión", () => {
+  it("encuadra a la distancia calculada frente a la obra (sin obstáculos)", () => {
+    const cam = makeCamera();
+    const c = new CameraController({ camera: cam, domElement: fakeDom(), getColliders: () => [], hallBounds: { width: 34, length: 34 } });
+    const center = new THREE.Vector3(16.8, 2, 0);
+    const normal = new THREE.Vector3(-1, 0, 0);
+    const art = makeArtwork(center, normal, new THREE.Vector3(0.1, 2, 2));
+    const f = c._computeFocus(art);
+    // computeFramingDistance(2,2,75,1.15) ≈ 1.4987
+    expect(f.dist).toBeCloseTo(1.4987, 2);
+    expect(f.dest.x).toBeCloseTo(16.8 - 1.4987, 2);
+    expect(f.dest.y).toBeCloseTo(2, 3);
+    expect(f.dest.z).toBeCloseTo(0, 3);
+  });
+
+  it("_onKeyDown W avanza y un colisionador enfrente lo detiene", () => {
+    const cam = makeCamera();
+    const blocker = new THREE.Mesh(new THREE.BoxGeometry(40, 6, 2), new THREE.MeshBasicMaterial());
+    blocker.position.set(0, 3, 5); // ocupa z ∈ [4,6]
+    blocker.updateWorldMatrix(true, true);
+    const c = new CameraController({ camera: cam, domElement: fakeDom(), getColliders: () => [blocker], hallBounds: { width: 34, length: 34 } });
+    c._onKeyDown({ code: "KeyW" });
+    for (let i = 0; i < 120; i++) c.update(1 / 60);
+    // El colisionador bloquea el avance por -Z: no cruza su cara trasera (z≈6)
+    expect(cam.position.z).toBeGreaterThan(6.0 - 1e-3);
+    // Sin bloqueo habría avanzado mucho más allá
+    expect(cam.position.z).toBeLessThan(8);
+  });
+
+  it("release sin vista activa no congela el movimiento", () => {
+    const cam = makeCamera();
+    const c = new CameraController({ camera: cam, domElement: fakeDom(), getColliders: () => [], hallBounds: { width: 34, length: 34 } });
+    c.release(); // nada estaba bloqueado
+    expect(c.isTweening).toBe(false);
+  });
+});

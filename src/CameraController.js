@@ -80,7 +80,7 @@ export default class CameraController {
     };
     this.dom.addEventListener("mousedown", this._onMouseDown);
     window.addEventListener("mouseup", this._onMouseUp);
-    this.dom.addEventListener("mousemove", this._onMouseMove);
+    window.addEventListener("mousemove", this._onMouseMove);
     document.addEventListener("keydown", this._onKeyDown);
     document.addEventListener("keyup", this._onKeyUp);
   }
@@ -88,7 +88,7 @@ export default class CameraController {
   dispose() {
     this.dom.removeEventListener("mousedown", this._onMouseDown);
     window.removeEventListener("mouseup", this._onMouseUp);
-    this.dom.removeEventListener("mousemove", this._onMouseMove);
+    window.removeEventListener("mousemove", this._onMouseMove);
     document.removeEventListener("keydown", this._onKeyDown);
     document.removeEventListener("keyup", this._onKeyUp);
     gsap.killTweensOf(this.camera.position);
@@ -159,9 +159,9 @@ export default class CameraController {
     }
   }
 
-  focusOn(artwork) {
+  _computeFocus(artwork) {
     const group = artwork && artwork.mesh;
-    if (!group) return;
+    if (!group) return null;
     group.updateWorldMatrix(true, true);
     const bbox = new THREE.Box3().setFromObject(group);
     const center = new THREE.Vector3();
@@ -189,15 +189,23 @@ export default class CameraController {
     const dest = pointAlong(center, normal, dist);
     dest.y = center.y;
 
-    this._lockedTarget.copy(center);
+    return { center, normal, dist, dest };
+  }
+
+  focusOn(artwork) {
+    const f = this._computeFocus(artwork);
+    if (!f) return;
+
+    this._lockedTarget.copy(f.center);
     this.isViewLocked = true;
     this.isTweening = true;
     this._dragging = false;
+    this._vel.set(0, 0, 0);
     this.camera.up.set(0, 1, 0);
 
     gsap.killTweensOf(this.camera.position);
     gsap.to(this.camera.position, {
-      x: dest.x, y: dest.y, z: dest.z,
+      x: f.dest.x, y: f.dest.y, z: f.dest.z,
       duration: 1.0, ease: "power3.inOut",
       onComplete: () => { this.isTweening = false; },
     });
@@ -217,6 +225,8 @@ export default class CameraController {
     this.camera.up.set(0, 1, 0);
     this.camera.rotation.set(0, this._yaw, 0);
 
+    if (!wasActive) return;
+
     gsap.killTweensOf(this.camera.position);
     this.isTweening = true;
     gsap.to(this.camera.position, {
@@ -224,7 +234,7 @@ export default class CameraController {
       onComplete: () => { this.isTweening = false; },
     });
 
-    if (wasActive) this.onRelease();
+    this.onRelease();
   }
 
   reset() {
