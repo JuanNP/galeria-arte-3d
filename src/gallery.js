@@ -61,9 +61,10 @@ export default class ArtGallery3D {
       metalness: 0.05,
     });
     this._maxTextureSize = 2048;
-    // Auto-iluminación sutil / material unlit de las obras
-    this._artEmissiveBoost = 0.45;
-    this._artUnlit = true;
+    // Obras iluminadas por su foco dedicado (sala oscura). Un pequeño emissive
+    // evita que queden en negro puro fuera del punto caliente del foco.
+    this._artEmissiveBoost = 0.12;
+    this._artUnlit = false;
     this._artUnlitBrightness = 0.25;
     this._artBottomMargin = 1.1;
     // Cap opcional de FPS
@@ -93,9 +94,9 @@ export default class ArtGallery3D {
     this.renderer.setSize(width, height);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.physicallyCorrectLights = true;
+    this.renderer.useLegacyLights = true; // intensidades intuitivas para el look de museo
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.3; // a bit brighter whites
+    this.renderer.toneMappingExposure = 1.15; // sala oscura
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     container.appendChild(this.renderer.domElement);
@@ -397,42 +398,29 @@ export default class ArtGallery3D {
   }
 
   setupLights() {
-    // Soft ambient fill replaced by hemisphere to keep white walls balanced
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x2b2b2b, 0.5);
-    hemi.layers.enable(1); // affect artworks on layer 1
+    // Sala oscura: sólo un relleno hemisférico muy tenue para que nada quede
+    // en negro absoluto. La luz protagonista es el foco dedicado por obra
+    // (ver _attachArtworkSpot), creando el ambiente de museo.
+    const hemi = new THREE.HemisphereLight(0xaab0c0, 0x0a0a10, 0.12);
+    hemi.layers.enable(1); // también afecta a las obras (capa 1)
     this.scene.add(hemi);
+    this._points = []; // sin rejilla de puntos (sala oscura)
+  }
 
-    // Top-down directional to keep lighting symmetric left/right and preserve shadows
-    const directionalLight = new THREE.DirectionalLight(0xfffbf0, 0.7); // slight warm white, softer to let spots read
-    directionalLight.layers.enable(1); // affect artworks on layer 1
-    directionalLight.position.set(0, 12, 6); // slightly forward, centered in X
-    directionalLight.target.position.set(0, 0, 0);
-    directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 1024;
-    directionalLight.shadow.mapSize.height = 1024;
-    directionalLight.shadow.camera.near = 0.5;
-    directionalLight.shadow.camera.far = 80;
-    directionalLight.shadow.camera.left = -24;
-    directionalLight.shadow.camera.right = 24;
-    directionalLight.shadow.camera.top = 24;
-    directionalLight.shadow.camera.bottom = -24;
-    directionalLight.shadow.bias = -0.0002; // reduce acne/banding
-    this.scene.add(directionalLight);
-    this.scene.add(directionalLight.target);
-    // Rejilla de puntos suaves para la sala
-    this._points = [];
-    const w = this.hall?.width || 24;
-    const l = this.hall?.length || 24;
-    const step = 8;
-    for (let x = -w / 2 + step; x <= w / 2 - step; x += step) {
-      for (let z = -l / 2 + step; z <= l / 2 - step; z += step) {
-        const p = new THREE.PointLight(0xffffff, 0.6, 28);
-        p.position.set(x, (this.hall?.height || 6) - 0.7, z);
-        p.castShadow = false;
-        this.scene.add(p);
-        this._points.push(p);
-      }
-    }
+  // Foco museo dedicado a una obra: colgado del grupo de la obra (en espacio
+  // local), por encima y por delante del lienzo, apuntando a su centro.
+  // Ilumina tanto la obra (capa 1) como la pared detrás (capa 0).
+  _attachArtworkSpot(group, h) {
+    const spot = new THREE.SpotLight(0xfff2e0, 6.0, 16, Math.PI / 6, 0.5, 1.2);
+    spot.castShadow = false; // sin sombras: mantiene el coste bajo y la pared limpia
+    spot.position.set(0, h * 0.5 + 0.9, 1.7); // arriba y delante (lado sala = +Z local)
+    const target = new THREE.Object3D();
+    target.position.set(0, 0, 0.05); // centro del lienzo
+    group.add(target);
+    spot.target = target;
+    group.add(spot);
+    spot.layers.set(0);
+    spot.layers.enable(1);
   }
 
   generateConcreteTexture(size = 256) {
@@ -812,47 +800,6 @@ export default class ArtGallery3D {
     return group;
   }
 
-  rebuildArtworkSpots() {
-    // Remove existing artwork spots
-    for (const s of this._spots) {
-      if (s.target && s.target.parent) s.target.parent.remove(s.target);
-      if (s.parent) s.parent.remove(s);
-    }
-    this._spots = [];
-
-    const wallHeight = this.hall?.height || 6;
-
-    // Create one spotlight per artwork, positioned directly above its wall, aimed at the artwork center
-    for (const a of this.artworks) {
-      if (!a || !a.mesh) continue;
-      const center = new THREE.Vector3();
-      new THREE.Box3().setFromObject(a.mesh).getCenter(center);
-      const y = wallHeight - 0.3;
-      const spot = new THREE.SpotLight(0xfff1e0, 2.2, 18, Math.PI / 6, 0.5, 2);
-      spot.position.set(center.x, y, center.z);
-      // Light affects both default (0) and artworks (1) layers
-      spot.layers.enable(1);
-
-      // Target: artwork center
-      spot.target.position.set(center.x, center.y, center.z);
-
-      spot.castShadow = true;
-      spot.shadow.mapSize.set(2048, 2048);
-      spot.shadow.bias = -0.00018;
-      spot.shadow.camera.near = 0.1;
-      spot.shadow.camera.far = 30;
-      spot.shadow.focus = 1;
-
-      this.scene.add(spot);
-      this.scene.add(spot.target);
-      this._spots.push(spot);
-    }
-  }
-
-  // Public API: rebuild per-artwork spotlights after adding/removing artworks at runtime
-  refreshLighting() {
-    this.rebuildArtworkSpots();
-  }
   _updateCulling() {
     const ACTIVE_Z = 24; // ventana visible ±12 m
     const cz = this.camera.position.z;
@@ -1110,6 +1057,8 @@ export default class ArtGallery3D {
         const newY = this._artBottomMargin + data.size[1] * 0.5;
         data.position = [x0, newY, z0];
         artworkGroup.position.y = newY;
+        // Foco dedicado a la obra (sala oscura)
+        this._attachArtworkSpot(artworkGroup, data.size[1]);
       });
       // (Optional safety) Ensure canvases do NOT receive shadow maps from frames/walls
       canvas.receiveShadow = false; // keep image clean from shadow maps
@@ -1152,6 +1101,8 @@ export default class ArtGallery3D {
       const newY = this._artBottomMargin + data.size[1] * 0.5;
       data.position = [x0, newY, z0];
       artworkGroup.position.y = newY;
+      // Foco dedicado a la obra (sala oscura)
+      this._attachArtworkSpot(artworkGroup, data.size[1]);
     }
 
     data.mesh = artworkGroup;
@@ -1177,7 +1128,11 @@ export default class ArtGallery3D {
 
     this.scene.add(artworkGroup);
     this.addArtworkInteraction(artworkGroup, data);
-    artworkGroup.traverse((o) => o.layers.set(1));
+    // Poner todo en la capa 1 (raycast/selección) EXCEPTO las luces, que deben
+    // seguir iluminando también la pared (capa 0).
+    artworkGroup.traverse((o) => {
+      if (!o.isLight) o.layers.set(1);
+    });
   }
   _updateLOD() {
     const cameraZ = this.camera.position.z;
